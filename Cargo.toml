@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[workspace]
+members = ["server", "migrate"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.91.0"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# Inlined from the vortex monorepo (ct/bench-v4) [workspace.dependencies] at the
+# EXACT upstream pins so the standalone build matches. `vortex-utils` (a
+# monorepo-internal crate) is intentionally replaced by a direct `hashbrown`
+# dependency — its only use here was the `hashbrown` HashMap/HashSet aliases.
+anyhow = "1.0.97"
+arrow-array = "58.3"
+arrow-buffer = "58.3"
+arrow-schema = "58.3"
+clap = "4.5"
+dashmap = "6.1.0"
+futures = { version = "0.3.31", default-features = false }
+hashbrown = "0.17.1"
+insta = "1.43"
+parking_lot = { version = "0.12.3", features = ["nightly"] }
+reqwest = { version = "0.13.0", features = [
+    "blocking",
+    "charset",
+    "http2",
+    "rustls",
+    "system-proxy",
+], default-features = false }
+rstest = "0.26.1"
+serde = "1.0.220"
+serde_json = "1.0.138"
+tempfile = "3"
+thiserror = "2.0.3"
+tokio = { version = "1.52" }
+tracing = { version = "0.1.41", default-features = false }
+tracing-subscriber = "0.3"
