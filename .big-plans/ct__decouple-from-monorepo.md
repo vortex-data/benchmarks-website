@@ -161,7 +161,7 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "2: Own correctness CI"   # current phase name (matches Phase Map)
-sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: "2.1 rust-ci"       # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
 status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
