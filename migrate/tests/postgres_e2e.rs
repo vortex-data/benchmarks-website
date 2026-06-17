@@ -40,9 +40,9 @@ use vortex_bench_server::schema::COMMITS_DDL;
 /// omitted: they configure RDS auth, which a throwaway container neither has
 /// nor needs.
 const SCHEMA_SQL: &str = concat!(
-    include_str!("../../../migrations/001_initial_schema.sql"),
-    include_str!("../../../migrations/006_read_path_perf.sql"),
-    include_str!("../../../migrations/007_summary_covering_index.sql"),
+    include_str!("../../migrations/001_initial_schema.sql"),
+    include_str!("../../migrations/006_read_path_perf.sql"),
+    include_str!("../../migrations/007_summary_covering_index.sql"),
 );
 
 /// Per-table row counts the fixture loads. Drives the count assertions.

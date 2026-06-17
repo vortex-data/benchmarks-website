@@ -37,10 +37,10 @@ use vortex_bench_server::records::RandomAccessTime;
 use vortex_bench_server::records::VectorSearchRun;
 
 /// Path to the committed golden file (`<repo-root>/scripts/...`). The server
-/// crate lives at `benchmarks-website/server`, so the repo root is two levels
-/// up from `CARGO_MANIFEST_DIR`.
+/// crate lives at `server/`, so the repo root is one level up from
+/// `CARGO_MANIFEST_DIR`.
 fn golden_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/measurement_id_golden.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/measurement_id_golden.json")
 }
 
 /// Build a `query_measurements` fixture carrying only the hash-relevant dim

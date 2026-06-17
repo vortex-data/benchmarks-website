@@ -28,6 +28,6 @@ fn main() {
     // (`git checkout --force --detach <sha>`); refs/heads/* covers
     // local branches if anyone runs the binary from a checked-out
     // branch. Both are no-ops if the file doesn't exist.
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
-    println!("cargo:rerun-if-changed=../../.git/refs/heads");
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/refs/heads");
 }
