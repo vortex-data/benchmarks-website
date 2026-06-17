@@ -163,7 +163,7 @@ generations are explicitly **future work**, not this project.
 phase: "2: Own correctness CI"   # current phase name (matches Phase Map)
 sub_phase: "2.1 rust-ci"       # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: fixing                 # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-entry commit (Phase 2)
 ```
