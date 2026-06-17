@@ -33,7 +33,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use tokio::sync::Mutex as AsyncMutex;
 use twox_hash::XxHash64;
-use vortex_utils::aliases::hash_map::HashMap;
+use hashbrown::HashMap;
 
 use crate::api;
 use crate::api::ChartResponse;

@@ -27,7 +27,7 @@ use vortex_bench_server::records::CompressionSize;
 use vortex_bench_server::records::CompressionTime;
 use vortex_bench_server::records::QueryMeasurement;
 use vortex_bench_server::records::RandomAccessTime;
-use vortex_utils::aliases::hash_map::HashMap;
+use hashbrown::HashMap;
 
 use super::MigrationSummary;
 
