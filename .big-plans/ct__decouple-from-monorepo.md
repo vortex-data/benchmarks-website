@@ -33,8 +33,18 @@ generations are explicitly **future work**, not this project.
 - **Decision (b) `migrations/` home — repo root** (`/migrations/`); fix the now-wrong relative paths
   in `migrate/tests` + `web/lib/test-harness.ts`.
 - **Decision (c) contract versioning — `SCHEMA_VERSION`-anchored.** A contract doc + a CI consistency
-  check that the in-repo constants agree; the monorepo `post-ingest.py` consumer is documented, not
-  cross-repo-tested.
+  check across the TWO in-repo anchors (`server/src/schema.rs` + `web/lib/schema-version.ts` — NOT
+  `migrate/src/lib.rs`, which has no such const; grill-me found that lockstep claim stale). The
+  monorepo `post-ingest.py` consumer is documented, not cross-repo-tested.
+- **Decision (d) Vercel — NEW project (grill-me).** This repo deploys to a new Vercel project it
+  owns, not the monorepo's; deploys are CLI-keyed by `VERCEL_PROJECT_ID` and the monorepo's
+  `web-deploy.yml` still fires, so sharing the project would race. A new project is the only
+  race-free, monorepo-untouched path.
+- **Decision (e) fmt — stable-compatible (grill-me).** Use a `rustfmt.toml` without nightly-only
+  options so `cargo fmt --check` runs on stable 1.91.0; do not add a nightly toolchain just for fmt.
+- **Verified pins (grill-me):** `hashbrown = "0.17.1"`, `reqwest = "0.13.0"` (copy features verbatim).
+  DuckDB is `bundled` → default `cargo nextest run` is offline; the `#[ignore]`'d admin tests need
+  network for the vortex extension and stay ignored in CI.
 - **Phase order:** build → CI → contract doc → deploy/secrets (lowest external risk first, external
   infra last).
 
@@ -113,6 +123,9 @@ generations are explicitly **future work**, not this project.
 7. **Re-pointing live deploys.** All three generations are live, so re-pointing Vercel / the v3 EC2
    host risks disrupting live traffic. P=med; impact=severe; mitigation: Phase 4 re-points are
    validated / parallel where possible and gated on user confirmation; never a blind cutover.
+8. **Cross-repo Vercel deploy race.** P=med; impact=moderate; mitigation: resolved by Decision (d) —
+   a new, independently-owned Vercel project means this repo's CLI deploys cannot collide with the
+   monorepo's deploys to its project.
 
 ---
 

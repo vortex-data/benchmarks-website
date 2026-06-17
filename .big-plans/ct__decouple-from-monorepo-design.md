@@ -8,7 +8,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 **Date:** 2026-06-17
 **Branch:** `ct/decouple-from-monorepo`
 **Work shape:** migration
-**Status:** approved (brainstorming) — pending grill-me stress-test + spine decomposition
+**Status:** approved (brainstorming) + grill-me stress-tested — pending spine decomposition
 **Planning seed:** [`.big-plans/decoupling-brief.md`](decoupling-brief.md)
 **Spine:** [`.big-plans/ct__decouple-from-monorepo.md`](ct__decouple-from-monorepo.md)
 
@@ -96,8 +96,10 @@ sequences around them and touches neither.
 - **Recommended root manifest:** `members = ["server","migrate"]`, `resolver = "2"`,
   `[workspace.package]` edition/rust-version/license, `[workspace.dependencies]` inlined from the
   monorepo at the exact upstream pins, `vortex-utils` replaced by `hashbrown`. Copy
-  `rust-toolchain.toml` verbatim; `cargo generate-lockfile`. Verify the exact `hashbrown` and
-  `reqwest` feature pins against `vortex4/Cargo.toml` `[workspace.dependencies]`.
+  `rust-toolchain.toml` verbatim; `cargo generate-lockfile`. Resolved pins (grill-me, from
+  `vortex4/Cargo.toml`): **`hashbrown = "0.17.1"`** (the three alias imports switch to
+  `hashbrown::{HashMap,HashSet}`); `reqwest = "0.13.0"` (copy the feature list verbatim — `migrate`
+  relies on the `rustls` paths).
 
 ### CI to replicate (Phases 2 + 4)
 
@@ -105,10 +107,16 @@ sequences around them and touches neither.
 - **The current (v4) CI lives only on the unmerged monorepo `ct/bench-v4` branch:** `web-deploy.yml`,
   `web-keep-warm.yml`, `schema-deploy.yml`, `migrations/*.sql`, `scripts/migrate-schema.py`.
   `develop` has only the v3/legacy subset.
-- **Correctness CI (Phase 2, no creds):** Rust — `cargo fmt --check` (the monorepo uses a *nightly*
-  toolchain for fmt), `cargo clippy --all-targets -- -D warnings`, `cargo nextest run` (incl. the
-  `--run-ignored only` admin tests that need network), `cargo test --doc`. `web/` — `pnpm
-  format:check`, `pnpm lint`, a deliberately **DB-free** `pnpm build`, `pnpm test` (vitest; the
+- **Correctness CI (Phase 2, no creds):** Rust — `cargo fmt --check`, `cargo clippy --all-targets --
+  -D warnings`, `cargo nextest run`, `cargo test --doc`. The default `cargo nextest run` runs
+  **offline** (DuckDB is `bundled` → compiled from source, no engine network dep); the `#[ignore]`'d
+  admin tests need network for the vortex DuckDB extension and stay ignored in CI. **fmt decision
+  (grill-me):** the monorepo's `rustfmt.toml` uses nightly-only options (`unstable_features = true`,
+  `style_edition = "2024"`, `imports_granularity`/`group_imports`) but the toolchain pins stable
+  1.91.0 — so standalone, use a **stable-compatible `rustfmt.toml`** (drop the unstable options)
+  rather than installing a second nightly toolchain just for fmt (pragmatic, consistent with the
+  lints decision). `web/` — `pnpm format:check`, `pnpm lint`, a deliberately **DB-free** `pnpm
+  build`, `pnpm test` (vitest; the
   Postgres suite needs Docker). Package manager is `pnpm@11.5.2`.
 - **Deploy CI (Phase 4, external creds):** `web-deploy.yml` (Vercel CLI `pull`/`build`/`deploy
   --prebuilt`), `web-keep-warm.yml` (cron curl), `schema-deploy.yml` (OIDC-assume `migrator`, run
@@ -134,6 +142,11 @@ Two paths exist; the contract documents both, pinned to `SCHEMA_VERSION` (curren
 - **In-repo version anchors to keep in agreement:** `server/src/schema.rs` `SCHEMA_VERSION`,
   `web/lib/schema-version.ts` (asserted by `web/lib/schema-version.test.ts:13`). The doc records the
   monorepo consumers (`post-ingest.py`, `vortex-bench/src/v3.rs`) which cannot be tested cross-repo.
+- **Stale lockstep reference (grill-me):** `web/lib/schema-version.ts:13`, the `server/src/schema.rs`
+  docstring, and `AGENTS.md` all name `migrate/src/lib.rs` as a `SCHEMA_VERSION` lockstep site, but
+  `migrate/src/lib.rs` has **no such const** (verified). Phase 3 must (a) exclude `migrate` from the
+  consistency check and (b) fix these stale references — there are exactly two in-repo anchors, not
+  three.
 
 ### Secrets / infra inventory (Phase 4)
 
@@ -189,11 +202,17 @@ emitters unchanged.
 
 ### Phase 4 — Deploy + secrets/infra ownership
 
-`web-deploy.yml` + `web-keep-warm.yml` + `schema-deploy.yml` in this repo; re-point the Vercel
-project at this repo (Root Directory `web/`); migrate Vercel env + GitHub secrets/vars; extend the
-AWS IAM OIDC trust to this repo; re-point the v3 EC2 host to poll this repo. **All external
-side-effects are gated on user confirmation** — big-plans produces the workflows/config/runbook; the
-user executes console-side changes (Vercel/AWS/GitHub) or explicitly authorizes them.
+`web-deploy.yml` + `web-keep-warm.yml` + `schema-deploy.yml` in this repo; **create a NEW Vercel
+project owned by this repo** (Root Directory `web/`, git-integration disabled, its own dev domain) so
+this repo's CLI deploys never race the monorepo's deploys to the shared project (grill-me: deploys
+are CLI-keyed by `VERCEL_PROJECT_ID`, the monorepo's `web-deploy.yml` still fires on monorepo PRs,
+and we touch nothing there — a new project is the only race-free, monorepo-untouched path); migrate
+Vercel env + this repo's GitHub secrets/vars (`VERCEL_TOKEN` + new `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`);
+extend the AWS IAM OIDC trust to this repo; re-point the v3 EC2 host to poll this repo (a single
+ops-config change — `REPO_DIR`/`DEPLOY_BRANCH` — since the host already builds-on-poll, not via
+monorepo CI). **All external side-effects are gated on user confirmation** — big-plans produces the
+workflows/config/runbook; the user executes console-side changes (Vercel/AWS/GitHub) or explicitly
+authorizes them.
 
 **Exit criteria:** a deploy from this repo reaches Vercel (preview or prod); CI can assume the AWS
 schema role; the v3 host builds from this repo; a runbook documents each external change. (Some
@@ -208,8 +227,17 @@ sub-criteria are user-confirmed rather than machine-checkable, given the externa
 - **(b) `migrations/` home — repo root.** `/migrations/`, matching the monorepo's layout after
   re-rooting; fix the now-wrong relative paths in `migrate/tests` + `web/lib/test-harness.ts`.
 - **(c) Contract versioning — `SCHEMA_VERSION`-anchored.** Lean on the existing `SCHEMA_VERSION`
-  (=1); a contract doc + a CI consistency check that the in-repo constants match. The monorepo
-  `post-ingest.py` consumer is documented but not cross-repo-testable.
+  (=1); a contract doc + a CI consistency check that the in-repo constants match (two anchors:
+  `schema.rs` + `schema-version.ts` — NOT `migrate/src/lib.rs`, which has no such const). The
+  monorepo `post-ingest.py` consumer is documented but not cross-repo-testable.
+- **(d) Vercel — new project (grill-me).** This repo deploys to a NEW Vercel project it owns, not the
+  monorepo's existing one. Rationale: deploys are CLI-keyed by `VERCEL_PROJECT_ID`, the monorepo's
+  `web-deploy.yml` still fires (we touch nothing there), so sharing the project risks cross-repo
+  deploy races. A new project is the only race-free, monorepo-untouched path; the monorepo's project
+  is retired in future work, and the Phase-5 DNS cutover later points production at whichever wins.
+- **(e) fmt — stable-compatible config (grill-me).** Use a `rustfmt.toml` without nightly-only
+  options so `cargo fmt --check` runs on the pinned stable 1.91.0 toolchain; do not add a nightly
+  toolchain just for fmt.
 
 ## Risks
 
@@ -226,6 +254,9 @@ sub-criteria are user-confirmed rather than machine-checkable, given the externa
 6. **Toolchain/lint drift** (P=med, minor) — decided: pragmatic lints (a), match toolchain.
 7. **Re-pointing live deploys** (P=med, severe — all three generations are live) — Phase 4 re-points
    are validated/parallel where possible and user-confirmed; never a blind cutover of live traffic.
+8. **Cross-repo Vercel deploy race** (P=med, moderate) — resolved by decision (d): a new,
+   independently-owned Vercel project means this repo's CLI deploys cannot collide with the
+   monorepo's deploys to its project.
 
 ## References (load-bearing anchors)
 
