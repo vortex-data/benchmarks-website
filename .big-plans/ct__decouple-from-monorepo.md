@@ -172,9 +172,9 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "2: Own correctness CI"   # current phase name (matches Phase Map)
-sub_phase: "2.2 web-ci"        # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-entry commit (Phase 2)
 ```
@@ -305,3 +305,17 @@ phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-e
 - **Exit criteria:** all PASS — `cargo build --workspace --locked`, `cargo nextest` (229 passed / 4 Docker-gated skip), web `pnpm build`; plus `cargo fmt --check` + `cargo clippy -D warnings` clean.
 - **Human gate:** 2026-06-17T18:14:38Z — proceed (STACKING MODE: no per-phase merge; advance to Phase 2 on the same branch — see "Execution model & handoff" at the top of the spine).
 - **Not merged:** per stacking mode, Phase 1 stays on `ct/decouple-from-monorepo`; it merges with everything else in the single final PR.
+
+### Phase 2: Own correctness CI
+
+#### Sub-phase 2.1: rust-ci
+
+- **Shipped:** `.github/workflows/rust-ci.yml` — `fmt --check`, `clippy --all-targets -D warnings`, `build --locked`, `nextest`, doctests; on push/PR; least-privilege `contents: read`; no creds. Cycle-1 gauntlet (pr-2) fixes applied: cache-before-toolchain ordering, stable `rust-ci-${{ github.ref }}` concurrency key, job-name + doctest-split clarity. Action tags left floating (`@v4`/`@v2`) per accepted tradeoff.
+- **Review:** lightweight (actionlint clean; cycle-1 gauntlet pr-2 ran once, must-fix items addressed). Authoritative adversarial review = the consolidated Phase-2 gauntlet (PHASE-2 BATCHED REVIEW).
+- **Deferred:** see Carry-forward > Accepted tradeoffs (floating-tags + u-3/u-4/u-6/u-10 declines).
+
+#### Sub-phase 2.2: web-ci
+
+- **Shipped:** `.github/workflows/web-ci.yml` — adapted from the monorepo `ct/bench-v4` `web-deploy.yml` Check&Test job: pnpm 11.5.2, node 24, `install --frozen-lockfile`, `format:check`, `lint`, DB-free `next build`, `docker info`-guarded vitest (testcontainers Postgres); on push/PR; least-privilege; no creds. Verified locally: format/lint/build green, 301 tests pass.
+- **Review:** lightweight (actionlint clean + full local command verification). Authoritative adversarial review = the consolidated Phase-2 gauntlet (PHASE-2 BATCHED REVIEW).
+- **Deferred:** 0.
