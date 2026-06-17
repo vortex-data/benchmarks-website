@@ -254,7 +254,9 @@ phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-e
 
 #### Accepted tradeoffs
 
-- (none yet)
+- **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **`push:` trigger has no `branches:` filter** (gauntlet u-3, should-fix). Decision: KEEP the bare `push:`. STACKING MODE opens no PR until the final wrap-up, so the Phase-2 exit criterion (`gh run list --branch ct/decouple-from-monorepo --workflow rust-ci.yml → success`) can only be satisfied by a `push`-triggered run on the feature branch — a `branches:` filter that excluded `ct/decouple-from-monorepo` would make the exit criterion unsatisfiable. The push+`pull_request` double-fire (once a PR exists) is de-duped by the `concurrency` group. DO NOT re-flag.
+- **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **`cargo build --workspace --locked` overlaps `cargo clippy --all-targets`** (gauntlet u-4, should-fix). Decision: KEEP the explicit `Build` step — it is a spec-mandated check (Phase Map 2.1 scope lists `build --locked`) and serves as an explicitly-named build gate in the CI UI distinct from the lint step. The cached re-compile cost is negligible. DO NOT re-flag.
+- **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **clippy/nextest run without `--all-features`** (gauntlet u-6 / u-10, should-fix / nit). Decision: do NOT add `--all-features`. The spec scopes the checks to default features; the workspace crates (`vortex-bench-server`, `vortex-bench-migrate`) define no own feature matrix that needs coverage, and `--all-features` would pull non-default dependency feature combinations that were never built/tested in Phase 1 (risking spurious CI failures). DO NOT re-flag.
 
 #### Deferred work
 
