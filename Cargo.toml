@@ -3,9 +3,9 @@
 
 [workspace]
 members = ["server", "migrate"]
-# `resolver = "2"` matches the monorepo pin. Edition 2024 would otherwise default
-# to resolver 3; keep this at 2 in sync with the monorepo to avoid feature-resolution
-# surprises (revisit when the monorepo upgrades its resolver).
+# `resolver = "2"` matches the monorepo pin. Edition 2024 implies resolver 3 (cargo
+# warns without an explicit pin); keep this at 2 in sync with the monorepo to avoid
+# feature-resolution surprises (revisit when the monorepo upgrades its resolver).
 resolver = "2"
 
 [workspace.package]
@@ -27,14 +27,16 @@ dashmap = "6.1.0"
 futures = { version = "0.3.31", default-features = false }
 hashbrown = "0.17.1"
 insta = "1.43"
-# The `nightly` feature is copied verbatim from the monorepo pin. It gates only a
-# WASM-atomics thread-parker (`cfg(all(feature = "nightly", target_family = "wasm", …))`)
-# in `parking_lot_core`, so it is a no-op on the non-WASM stable 1.91.0 targets we build —
-# verified to compile on stable.
+# The `nightly` feature is copied verbatim from the monorepo pin and compiles on stable
+# 1.91.0 (the build succeeds). Its conditional code paths in `parking_lot_core` (WASM
+# atomics, platform-specific optimizations) require a nightly compiler only on those
+# targets, not on our stable builds.
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-# `default-features = false` suppresses reqwest's default native-tls stack; the explicit
-# feature list selects rustls + http2 + blocking (the crates add `json` on top). Copied
-# verbatim from the monorepo pin so the TLS path matches RDS verify-full.
+# `default-features = false` + an explicit feature list, copied verbatim from the monorepo
+# pin to avoid feature-resolution drift. reqwest 0.13 already defaults to rustls, so the
+# explicit `rustls` re-selects the same backend while omitting unused defaults. reqwest
+# here serves HTTP(S) downloads (the migrate S3 fetch path) and server integration tests —
+# NOT the Postgres/RDS path, which uses `tokio-postgres-rustls` (see migrate/Cargo.toml).
 reqwest = { version = "0.13.0", features = [
     "blocking",
     "charset",
