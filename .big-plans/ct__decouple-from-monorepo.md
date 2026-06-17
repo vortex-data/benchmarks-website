@@ -243,3 +243,9 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 - **Shipped:** standalone root `Cargo.toml` workspace (`members = ["server","migrate"]`, resolver 2, `[workspace.package]` + `[workspace.dependencies]` inlined at exact monorepo pins); `rust-toolchain.toml` (stable 1.91.0); `vortex-utils` severed → direct `hashbrown 0.17.1` at 3 import sites; `Cargo.lock` generated; `/target` gitignored. `cargo build --workspace --locked` green.
 - **Gauntlet:** pr-3 / accepted (cycles: 3)
 - **Deferred:** 1 item (import ordering of the new `hashbrown` imports — see Carry-forward > Deferred work; sub-phase 1.3 rustfmt resolves it)
+
+#### Sub-phase 1.2: migrations-and-refs
+
+- **Shipped:** vendored `migrations/` (7 SQL + README, byte-identical from monorepo) + `scripts/measurement_id_golden.json`; re-rooted 4 in-repo monorepo-relative path refs (`server/build.rs` `.git`, `migrate/tests/postgres_e2e.rs` `include_str!` ×3, `web/lib/test-harness.ts`, `server/tests/measurement_id_golden.rs`). `cargo nextest` green (229 passed, 4 Docker-gated skips).
+- **Gauntlet:** pr-2 / accepted (cycles: 1) — diff narrowed past the 200KB ceiling by excluding the generated `Cargo.lock` + planning docs (validated separately by `cargo build --locked`).
+- **Deferred:** 0 items (3 dismissed nits in vendored files: Phase-4 forward-refs in `migrations/README.md` + golden JSON note, and a monorepo-prefixed path string in the golden note — trivial, self-resolving or in verbatim fixtures).
