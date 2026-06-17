@@ -10,6 +10,34 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 **Planning seed:** `.big-plans/decoupling-brief.md`
 **Work shape:** migration
 
+## Execution model & handoff — READ FIRST (overrides big-plans defaults)
+
+**STACKING MODE (user decision, 2026-06-17).** This project does NOT squash-merge each
+phase to `develop`. All phases stack on the single branch `ct/decouple-from-monorepo` and
+merge **once at the very end**. Nothing needs to land on `develop` per-phase. This overrides
+big-plans' default per-phase merge. Concretely, for a fresh conversation resuming this project:
+
+- **At each phase-boundary gate (Phase 3 Step 3.4):** still run the phase-end gauntlet (Step 3.2)
+  and still fire the gate AUQ. But **SKIP Step 3.3 (per-phase PR creation) and SKIP Step 3.5's
+  shared merge-and-sync preamble** (no `gh pr create`, no `gh pr merge --squash`, no
+  `git reset --hard origin/develop`). The user reviews the local diff + gauntlet verdict + the
+  executive summary at the gate, not a per-phase GitHub PR.
+- **On a "proceed" gate decision:** just advance to the next phase on the SAME branch via the
+  phase-advance two-commit pattern, with `phase_entry_sha` = the current HEAD (the previous
+  phase's tip). No merge, no branch reset — so `phase_entry_sha` simply chains down the branch.
+- **At the FINAL phase (Phase 4) wrap-up:** land the spine-deletion commit, then open ONE PR for
+  the whole branch and the user merges everything at once. (This is the only PR + the only merge.)
+- **Pushing:** nothing has been pushed yet. Do not push until the user asks (the single final PR
+  is when the push happens, unless the user requests an earlier push).
+
+**Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
+re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
+Current Position block below and resumes. Current state: **Phase 1 complete + gauntlet-accepted +
+gated (proceed); resuming at Phase 2 (Own correctness CI), sub-phase 2.1 (rust-ci), Step 2.1
+(generate the JIT task-plan via `writing-plans`).** No work is in flight mid-sub-phase; the seam is
+clean. See the Verdict/Completion Ledger for what shipped and the Carry-forward > Deferred work for
+Phase-3 cleanup items.
+
 ## Goal
 
 Make the `benchmarks-website` repository fully self-sufficient — standalone build, its own CI,
@@ -136,7 +164,7 @@ phase: "1: Standalone build foundation"   # current phase name (matches Phase Ma
 sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
 status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
-last_gate: null                # ISO 8601 timestamp of the most recent human gate, or null
+last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-entry commit (Phase 1)
 ```
 
@@ -261,3 +289,5 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 
 - **Gauntlet:** phase-4 / accepted (cycles: 1) — 4 lenses (spec/correctness/maint/arch), 0 must-fix, 0 should-fix; nits deferred to Phase 3 stale-reference cleanup (see Carry-forward > Deferred work).
 - **Exit criteria:** all PASS — `cargo build --workspace --locked`, `cargo nextest` (229 passed / 4 Docker-gated skip), web `pnpm build`; plus `cargo fmt --check` + `cargo clippy -D warnings` clean.
+- **Human gate:** 2026-06-17T18:14:38Z — proceed (STACKING MODE: no per-phase merge; advance to Phase 2 on the same branch — see "Execution model & handoff" at the top of the spine).
+- **Not merged:** per stacking mode, Phase 1 stays on `ct/decouple-from-monorepo`; it merges with everything else in the single final PR.
