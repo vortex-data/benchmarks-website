@@ -144,9 +144,27 @@ phase_entry_sha: null          # SHA of the phase-entry commit; null initially
 
 ## Phase Map
 
-<!-- Decomposition is Phase 1 Step 1.4, after brainstorming + grill-me. Empty until then. -->
+<!-- Each Phase = one squash-merged PR in THIS repo. Sub-phases run autonomously (no separate PRs).
+     Exit criteria are machine-checkable (command → 0/non-0); Phase 4's live-infra sub-criteria are
+     user-confirmed at the gate (noted in scope) on top of the machine-checkable command below.
+     Task-plan pointers name the JIT writing-plans output generated in Phase 2 Step 2.1. -->
 
-_(empty — populated in Phase 1 Step 1.4 after the design is built and stress-tested)_
+| Phase | Sub-phase | Scope (one line) | Exit criteria (command → expected) | Sub-phase gauntlet | Phase gauntlet | Task-plan pointer |
+|---|---|---|---|---|---|---|
+| 1: Standalone build foundation | 1.1 workspace | Root `Cargo.toml` workspace (`members = ["server","migrate"]`, resolver 2, `[workspace.package]`, `[workspace.dependencies]` inlined at exact monorepo pins incl. `hashbrown = "0.17.1"` + `reqwest = "0.13.0"` features); copy `rust-toolchain.toml`; sever `vortex-utils` → `hashbrown::{HashMap,HashSet}` (3 imports); `cargo generate-lockfile` | (phase-level — see phase row) | pr-3 | | `.big-plans/ct__decouple-from-monorepo--1-1-workspace.plan.md` |
+| *(phase 1 cont.)* | 1.2 migrations-and-refs | Bring `migrations/` (7 SQL + README) to repo root + the `measurement_id` golden fixture; fix in-repo monorepo-relative refs (`server/build.rs` `.git` path; `include_str!` paths in `migrate/tests`; `server/tests/measurement_id_golden.rs`; `web/lib/test-harness.ts`) | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--1-2-migrations-and-refs.plan.md` |
+| *(phase 1 cont.)* | 1.3 green-build | Stable-compatible `rustfmt.toml` (no nightly-only opts); make `cargo build`/`nextest`/`web pnpm build` all green standalone | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--1-3-green-build.plan.md` |
+| *(phase 1 exit)* | *(all sub-phases)* | Repo builds + tests standalone | `cargo build --workspace --locked` → 0; `cargo nextest run -p vortex-bench-server -p vortex-bench-migrate` → 0; `(cd web && pnpm install --frozen-lockfile && pnpm build)` → 0 | | phase-4 | |
+| 2: Own correctness CI | 2.1 rust-ci | `.github/workflows/rust-ci.yml` — `fmt --check`, `clippy --all-targets -- -D warnings`, `build --locked`, `nextest run`, `test --doc`; on push/PR; no creds | (phase-level — see phase row) | pr-2 | | `.big-plans/ct__decouple-from-monorepo--2-1-rust-ci.plan.md` |
+| *(phase 2 cont.)* | 2.2 web-ci | `.github/workflows/web-ci.yml` — `pnpm format:check`/`lint`/DB-free `build`/`test` (with `docker info` guard); on push/PR; no creds | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--2-2-web-ci.plan.md` |
+| *(phase 2 exit)* | *(all sub-phases)* | CI green on the branch | `actionlint .github/workflows/*.yml` → 0; `gh run list --branch ct/decouple-from-monorepo --workflow rust-ci.yml -L1 --json conclusion -q '.[0].conclusion'` → `success`; same for `web-ci.yml` | | phase-3 | |
+| 3: Emitter→ingester contract | 3.1 contract-doc | Write the versioned contract doc (v3 `POST /api/ingest` + v4 direct-Postgres dual-write + `POST /api/revalidate`, pinned to `SCHEMA_VERSION`); fix the stale `migrate/src/lib.rs` lockstep refs in `schema-version.ts` / `schema.rs` docstring / `AGENTS.md` | (phase-level — see phase row) | pr-2 | | `.big-plans/ct__decouple-from-monorepo--3-1-contract-doc.plan.md` |
+| *(phase 3 cont.)* | 3.2 version-check | Add a consistency check asserting the TWO in-repo anchors agree (`server/src/schema.rs` ↔ `web/lib/schema-version.ts` ↔ the doc) | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--3-2-version-check.plan.md` |
+| *(phase 3 exit)* | *(all sub-phases)* | Contract documented + version-consistent | `test -f CONTRACT.md` → 0; the schema-version consistency check (test/script) → 0 | | phase-3 | |
+| 4: Deploy + secrets/infra ownership | 4.1 deploy-workflows | `web-deploy.yml` (NEW Vercel project, git-integration off) + `web-keep-warm.yml` + `schema-deploy.yml` in `.github/`; bring `scripts/migrate-schema.py` in | (phase-level — see phase row) | pr-3 | | `.big-plans/ct__decouple-from-monorepo--4-1-deploy-workflows.plan.md` |
+| *(phase 4 cont.)* | 4.2 secrets-runbook | Runbook for the external setup (create new Vercel project + env; this repo's GitHub secrets/vars; extend AWS IAM OIDC trust to this repo); execute external changes gated on user confirmation | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--4-2-secrets-runbook.plan.md` |
+| *(phase 4 cont.)* | 4.3 v3-host-repoint | Re-point the v3 EC2 host (`REPO_DIR`/`DEPLOY_BRANCH`) at this repo (ops config + docs); gated on user confirmation | | pr-2 | | `.big-plans/ct__decouple-from-monorepo--4-3-v3-host-repoint.plan.md` |
+| *(phase 4 exit)* | *(all sub-phases)* | This repo owns its deploy + secrets (machine-checkable parts; live cutovers user-confirmed at the gate) | `actionlint .github/workflows/*.yml` → 0; `(cd web && vercel build --token="$VERCEL_TOKEN")` → 0; runbook file exists | | phase-4 | |
 
 ---
 
