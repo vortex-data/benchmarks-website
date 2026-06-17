@@ -35,18 +35,21 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 **Interfaces:**
 - Produces: a resolvable workspace (`[workspace.dependencies]` names: `anyhow`, `arrow-array`, `arrow-buffer`, `arrow-schema`, `clap`, `dashmap`, `futures`, `hashbrown`, `insta`, `parking_lot`, `reqwest`, `rstest`, `serde`, `serde_json`, `tempfile`, `thiserror`, `tokio`, `tracing`, `tracing-subscriber`). Task 2 relies on `hashbrown` being a workspace dependency of both crates.
 
-- [ ] **Step 1: Create the toolchain pin**
+- [x] **Step 1: Create the toolchain pin**
 
-Create `rust-toolchain.toml` (verbatim copy of the monorepo's — no SPDX header; `rust-toolchain.toml` conventionally carries none and a stray comment can confuse some tooling):
+Create `rust-toolchain.toml` (toolchain values copied verbatim from the monorepo's). It carries the two-line SPDX header like every other new file — the project's SPDX BAN lists `.toml` explicitly, and rustup parses TOML comments fine (no tooling hazard):
 
 ```toml
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 [toolchain]
 channel = "1.91.0"
 components = ["rust-src", "rustfmt", "clippy", "rust-analyzer"]
 profile = "minimal"
 ```
 
-- [ ] **Step 2: Create the root workspace manifest**
+- [x] **Step 2: Create the root workspace manifest**
 
 Create `Cargo.toml` at the repo root:
 
@@ -95,7 +98,7 @@ tracing = { version = "0.1.41", default-features = false }
 tracing-subscriber = "0.3"
 ```
 
-- [ ] **Step 3: Sever `vortex-utils` and hoist package fields in `server/Cargo.toml`**
+- [x] **Step 3: Sever `vortex-utils` and hoist package fields in `server/Cargo.toml`**
 
 In `server/Cargo.toml`, change the `[package]` block's `edition`/`rust-version`/`license` to inherit from the workspace, and in `[dependencies]` remove the `vortex-utils` line and add `hashbrown`.
 
@@ -120,7 +123,7 @@ hashbrown = { workspace = true }
 
 Also delete the now-inaccurate comment block at lines 21-23 (`# ... the crate is intentionally outside the workspace.`) — the crate IS now a workspace member; leaving the comment would be a false statement a reviewer must flag.
 
-- [ ] **Step 4: Sever `vortex-utils` and hoist package fields in `migrate/Cargo.toml`**
+- [x] **Step 4: Sever `vortex-utils` and hoist package fields in `migrate/Cargo.toml`**
 
 `[package]` becomes:
 
@@ -143,12 +146,12 @@ hashbrown = { workspace = true }
 
 (The existing comment at lines 17-19 already correctly says it "IS a workspace member" — leave it.)
 
-- [ ] **Step 5: Verify the workspace resolves**
+- [x] **Step 5: Verify the workspace resolves**
 
 Run: `cd /Users/connor/spiral/vortex-data/benchmarks-website && cargo metadata --format-version 1 >/dev/null && echo METADATA_OK`
 Expected: prints `METADATA_OK`. This resolves the workspace + all `[workspace.dependencies]` against crates.io (and writes an initial `Cargo.lock`). It does NOT compile, so the still-present `use vortex_utils` imports do not error here — they are fixed in Task 2. If `cargo metadata` errors with `vortex-utils was not found in workspace.dependencies`, a crate manifest still references it — re-check Steps 3-4.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/connor/spiral/vortex-data/benchmarks-website
@@ -171,7 +174,7 @@ git commit -m "build: add standalone root Cargo workspace; sever vortex-utils de
 **Interfaces:**
 - Consumes: `hashbrown = { workspace = true }` on both crates (Task 1). `hashbrown::HashMap` / `hashbrown::HashSet` default to `hashbrown::DefaultHashBuilder`, exactly what `vortex_utils::aliases::hash_map::HashMap` / `hash_set::HashSet` re-exported — so the call sites (`.new()`, `.insert()`, `.get()`, `.entry()`, etc.) are behaviorally identical drop-ins.
 
-- [ ] **Step 1: Replace the `server` read_model import**
+- [x] **Step 1: Replace the `server` read_model import**
 
 In `server/src/read_model.rs:36`, change:
 
@@ -185,7 +188,7 @@ to:
 use hashbrown::HashMap;
 ```
 
-- [ ] **Step 2: Replace the `server` app import**
+- [x] **Step 2: Replace the `server` app import**
 
 In `server/src/app.rs:41`, change:
 
@@ -199,7 +202,7 @@ to:
 use hashbrown::HashSet;
 ```
 
-- [ ] **Step 3: Replace the `migrate` accum import**
+- [x] **Step 3: Replace the `migrate` accum import**
 
 In `migrate/src/migrate/accum.rs:30`, change:
 
@@ -213,12 +216,12 @@ to:
 use hashbrown::HashMap;
 ```
 
-- [ ] **Step 4: Confirm no other `vortex_utils` / `vortex-utils` references remain**
+- [x] **Step 4: Confirm no other `vortex_utils` / `vortex-utils` references remain**
 
 Run: `cd /Users/connor/spiral/vortex-data/benchmarks-website && grep -rn "vortex_utils\|vortex-utils" server migrate Cargo.toml`
 Expected: NO matches (empty output). If any active `use`/manifest line remains, replace/remove it the same way. (Doc-comment mentions, if any surface, should also be removed — they would be a stale reference a reviewer flags.)
 
-- [ ] **Step 5: Build the workspace (locked)**
+- [x] **Step 5: Build the workspace (locked)**
 
 Run: `cd /Users/connor/spiral/vortex-data/benchmarks-website && cargo build --workspace --locked 2>&1 | tail -30`
 Expected: `Finished` with no errors. NOTE: the first build compiles `duckdb` (`bundled`) from C++ source and takes several minutes — this is expected, not a hang.
@@ -231,12 +234,12 @@ parking_lot = { version = "0.12.3" }
 
 then re-run the build. Record this deviation in the commit message if taken. (Do NOT add a nightly toolchain — stable is a hard constraint.)
 
-- [ ] **Step 6: Re-verify the locked build after any lockfile change**
+- [x] **Step 6: Re-verify the locked build after any lockfile change**
 
 Run: `cd /Users/connor/spiral/vortex-data/benchmarks-website && cargo build --workspace --locked >/dev/null 2>&1 && echo BUILD_OK`
 Expected: prints `BUILD_OK`. (If `--locked` complains the lockfile is stale after the contingency edit, run `cargo build --workspace` once to refresh `Cargo.lock`, then re-run this `--locked` check.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/connor/spiral/vortex-data/benchmarks-website
@@ -257,7 +260,7 @@ git commit -m "refactor: use hashbrown directly in place of vortex-utils aliases
 4. Generate `Cargo.lock` → Task 1 Step 5 (`cargo metadata` writes it) + Task 2 Step 5 (`cargo build` finalizes it). ✓
 5. Acceptance `cargo build --workspace --locked` succeeds → Task 2 Steps 5-6. ✓
 6. `parking_lot` nightly risk resolved → Task 2 Step 5 contingency. ✓
-7. SPDX header on new files → Task 1 Steps 1-2 (root `Cargo.toml` gets it; `rust-toolchain.toml` intentionally none). ✓
+7. SPDX header on new files → Task 1 Steps 1-2 (both root `Cargo.toml` AND `rust-toolchain.toml` carry the two-line header per the SPDX BAN). ✓
 
 **Placeholder scan:** No TBD/TODO; every dep pin, file path, line number, import string, and command is concrete. ✓
 
