@@ -12,9 +12,11 @@ permissions:
   contents: read
 
 # Cancel superseded runs on the same ref (a push to a PR'd branch fires both
-# `push` and `pull_request`).
+# `push` and `pull_request`). The group uses a stable literal slug rather than
+# `${{ github.workflow }}` so renaming the workflow's `name:` cannot orphan
+# in-flight runs under a now-unreachable group key.
 concurrency:
-  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -22,11 +24,18 @@ env:
 
 jobs:
   rust:
-    name: fmt, clippy, build, test
+    name: fmt, clippy, build, test, doctests
     runs-on: ubuntu-latest
     steps:
+      # Third-party actions are pinned to commit SHAs (matching the monorepo
+      # convention); the trailing `# vN` comment tracks the human-readable tag.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4
+
+      # Restore the cargo registry + target cache before any cargo invocation so
+      # the toolchain probe and the build/test steps run against a warm cache.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       # rustup installs the pinned toolchain (channel + rustfmt/clippy components)
       # from rust-toolchain.toml on first cargo use; this step makes that explicit
@@ -38,11 +47,8 @@ jobs:
           cargo fmt --version
           cargo clippy --version
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2
         with:
           tool: cargo-nextest
 
@@ -58,5 +64,6 @@ jobs:
       - name: Test (nextest)
         run: cargo nextest run --workspace --locked
 
+      # cargo-nextest does not execute doctests, so they run separately here.
       - name: Doctests
         run: cargo test --doc --workspace --locked
