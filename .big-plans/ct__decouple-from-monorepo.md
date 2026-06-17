@@ -135,7 +135,7 @@ generations are explicitly **future work**, not this project.
 phase: "1: Standalone build foundation"   # current phase name (matches Phase Map)
 sub_phase: "1.3 green-build"   # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: null                # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-entry commit (Phase 1)
 ```
