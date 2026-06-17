@@ -135,7 +135,7 @@ generations are explicitly **future work**, not this project.
 phase: "1: Standalone build foundation"   # current phase name (matches Phase Map)
 sub_phase: "1.1 workspace"     # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: fixing                 # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: null                # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-entry commit (Phase 1)
 ```
@@ -230,7 +230,7 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 
 #### Deferred work
 
-- (none yet)
+- **Sub-phase 1.1**, `server/src/read_model.rs:36` / `server/src/app.rs:41` / `migrate/src/migrate/accum.rs:30`, **nit**: the new `use hashbrown::{HashMap,HashSet}` imports landed at the end of the extern-crate group rather than in alphabetical position. Deferral rationale: sub-phase 1.3 adds the stable-compatible `rustfmt.toml` and `cargo fmt` (with `imports_granularity`/`group_imports`) reorders these automatically — fixing by hand now would be undone/duplicated by the formatter.
 
 ---
 
