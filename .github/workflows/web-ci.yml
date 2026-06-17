@@ -11,9 +11,13 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded runs on the same ref. The group uses a stable literal slug
-# rather than `${{ github.workflow }}` so renaming the workflow's `name:` cannot
-# orphan in-flight runs under a now-unreachable group key.
+# Cancel stale runs on the same ref: a newer push to a branch (or a newer sync
+# to a PR) supersedes the in-flight run. A push to a branch that ALSO has an open
+# PR still produces one `push` run AND one `pull_request` run — they carry
+# different refs (`refs/heads/…` vs `refs/pull/N/merge`), so they fall in
+# different groups and both complete. The group uses a stable literal slug rather
+# than `${{ github.workflow }}` so renaming the workflow's `name:` cannot orphan
+# in-flight runs.
 concurrency:
   group: web-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -41,6 +45,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
+          # Keep in lockstep with @types/node in web/package.json (Node 24 API surface).
           node-version: "24"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml

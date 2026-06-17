@@ -11,10 +11,13 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded runs on the same ref (a push to a PR'd branch fires both
-# `push` and `pull_request`). The group uses a stable literal slug rather than
-# `${{ github.workflow }}` so renaming the workflow's `name:` cannot orphan
-# in-flight runs under a now-unreachable group key.
+# Cancel stale runs on the same ref: a newer push to a branch (or a newer sync
+# to a PR) supersedes the in-flight run. A push to a branch that ALSO has an open
+# PR still produces one `push` run AND one `pull_request` run — they carry
+# different refs (`refs/heads/…` vs `refs/pull/N/merge`), so they fall in
+# different groups and both complete. The group uses a stable literal slug rather
+# than `${{ github.workflow }}` so renaming the workflow's `name:` cannot orphan
+# in-flight runs.
 concurrency:
   group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -26,6 +29,9 @@ jobs:
   rust:
     name: fmt, clippy, build, test, doctests
     runs-on: ubuntu-latest
+    # Generous bound for a cold-cache run (the bundled-DuckDB C++ compile is the
+    # slow path) while still catching a hung job well short of the 6h default.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,8 +41,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
-      # rustup installs the pinned toolchain (channel + rustfmt/clippy components)
-      # from rust-toolchain.toml on first cargo use; this step makes that explicit
+      # rustup installs the pinned toolchain and its components (per
+      # rust-toolchain.toml) on first cargo use; this step makes that explicit
       # and logs the resolved versions for debugging.
       - name: Show toolchain
         run: |
