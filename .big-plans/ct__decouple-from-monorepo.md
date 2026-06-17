@@ -236,4 +236,10 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 
 ## Verdict / Completion Ledger
 
-_(empty — grows as sub-phases and phases complete)_
+### Phase 1: Standalone build foundation
+
+#### Sub-phase 1.1: workspace
+
+- **Shipped:** standalone root `Cargo.toml` workspace (`members = ["server","migrate"]`, resolver 2, `[workspace.package]` + `[workspace.dependencies]` inlined at exact monorepo pins); `rust-toolchain.toml` (stable 1.91.0); `vortex-utils` severed → direct `hashbrown 0.17.1` at 3 import sites; `Cargo.lock` generated; `/target` gitignored. `cargo build --workspace --locked` green.
+- **Gauntlet:** pr-3 / accepted (cycles: 3)
+- **Deferred:** 1 item (import ordering of the new `hashbrown` imports — see Carry-forward > Deferred work; sub-phase 1.3 rustfmt resolves it)
