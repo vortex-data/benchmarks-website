@@ -249,3 +249,9 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 - **Shipped:** vendored `migrations/` (7 SQL + README, byte-identical from monorepo) + `scripts/measurement_id_golden.json`; re-rooted 4 in-repo monorepo-relative path refs (`server/build.rs` `.git`, `migrate/tests/postgres_e2e.rs` `include_str!` ×3, `web/lib/test-harness.ts`, `server/tests/measurement_id_golden.rs`). `cargo nextest` green (229 passed, 4 Docker-gated skips).
 - **Gauntlet:** pr-2 / accepted (cycles: 1) — diff narrowed past the 200KB ceiling by excluding the generated `Cargo.lock` + planning docs (validated separately by `cargo build --locked`).
 - **Deferred:** 0 items (3 dismissed nits in vendored files: Phase-4 forward-refs in `migrations/README.md` + golden JSON note, and a monorepo-prefixed path string in the golden note — trivial, self-resolving or in verbatim fixtures).
+
+#### Sub-phase 1.3: green-build
+
+- **Shipped:** stable-compatible `rustfmt.toml` (`style_edition = "2024"` + `use_field_init_shorthand = true`; nightly-only opts dropped); `cargo fmt --all` reformat (reordered the 3 hashbrown imports — resolves the deferred 1.1 nit). Full green bar: `build --locked`, `fmt --check`, `clippy -D warnings`, `nextest` (229 passed / 4 Docker-gated skip), web `format:check`/`lint`/`build` all green.
+- **Gauntlet:** pr-2 / accepted (cycles: 1) — zero findings; diff narrowed past the 200KB ceiling (excluding generated `Cargo.lock` + planning docs).
+- **Deferred:** 0 items. (The deferred 1.1 import-ordering nit is now RESOLVED by the fmt reformat.)
