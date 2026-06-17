@@ -14,15 +14,33 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 Make the `benchmarks-website` repository fully self-sufficient — standalone build, its own CI,
 its own secrets/deploy ownership, and a documented emitter→ingester contract — so the site iterates
-without the `vortex-data/vortex` monorepo's CI, then retire the monorepo's copy.
+without the `vortex-data/vortex` monorepo's CI. Retiring the monorepo copy and pruning legacy
+generations are explicitly **future work**, not this project.
 
 ## Architecture & key decisions
 
-<!-- A few bullets summarising the design evidence from the Phase 1 sweep. Full detail lives in
-     the design spec once brainstorming runs — these are the load-bearing facts the sweep
-     confirmed, plus candidate decisions to resolve in brainstorming. -->
+<!-- A few bullets summarising the design. Full detail lives in the design spec — do not restate
+     it here. Resolved decisions first, then the load-bearing findings the sweep confirmed. -->
 
-- **Repo carries three generations side by side.** Legacy Node/React v2 (top-level `server.js`,
+**Resolved decisions** (see design spec for rationale):
+
+- **Scope = make self-sufficient only.** Re-point deploys at this repo; touch nothing in the
+  monorepo; defer all in-repo legacy pruning. v3 teardown + monorepo-copy retirement are future work.
+- **v3 is temporary scaffolding** (kept because vortex lacks native emitters+ingestion). Keep it
+  building/testing/deploying, do not gold-plate it, keep its seams clean for a future removal.
+- **Decision (a) lints — pragmatic.** `clippy -D warnings` (+ `clippy.toml` if cheap); do NOT port
+  the monorepo's heavy `[workspace.lints]` deny-list initially.
+- **Decision (b) `migrations/` home — repo root** (`/migrations/`); fix the now-wrong relative paths
+  in `migrate/tests` + `web/lib/test-harness.ts`.
+- **Decision (c) contract versioning — `SCHEMA_VERSION`-anchored.** A contract doc + a CI consistency
+  check that the in-repo constants agree; the monorepo `post-ingest.py` consumer is documented, not
+  cross-repo-tested.
+- **Phase order:** build → CI → contract doc → deploy/secrets (lowest external risk first, external
+  infra last).
+
+**Findings the sweep confirmed:**
+
+- **Repo carries three generations side by side, all live.** Legacy Node/React v2 (top-level `server.js`,
   `src/`, `index.html`, `vite.config.js`, `public/`); Rust+DuckDB v3 (`server/`, `migrate/`, `ops/`,
   EC2/systemd, being retired); Next.js+Postgres v4 (`web/`, Vercel + RDS Postgres, the current
   forward path). v4 runs behind a dev-only Vercel domain pending a separate Phase-5 v3→v4 cutover.
@@ -54,9 +72,12 @@ without the `vortex-data/vortex` monorepo's CI, then retire the monorepo's copy.
 
 <!-- Bulleted, explicit. The gauntlet spec-adherence lens cross-references this list. -->
 
-- No changes to the v2 legacy production files (`server.js`, `src/`, `index.html`, `vite.config.js`,
-  `package.json`, `public/`, top-level `Dockerfile`, `docker-compose.yml`) except deletion during
-  the explicit legacy-prune phase — they remain production until the cutover.
+- **No pruning of ANY generation in this repo.** v2, v3, and v4 all stay — all three are live in
+  different states. No legacy deletion in this project.
+- **No changes to the monorepo.** No workflow trimming, no `benchmarks-website/` deletion, no
+  freezing. All monorepo-side retirement is future work.
+- **No v3 teardown.** v3 (`server/`/`migrate/`/`ops/`) stays as the ingestion bridge; its removal
+  waits for native vortex emitters+ingestion (future work).
 - No work that duplicates the monorepo's in-flight `ct/bench-v4 → develop` merge or the v3→v4
   Phase-5 production cutover — those are handled separately by the user; this project sequences
   around them.
@@ -65,17 +86,15 @@ without the `vortex-data/vortex` monorepo's CI, then retire the monorepo's copy.
   only the ingest *contract*, not the benchmark runs.
 - No changes to monorepo crates (`vortex-utils`, `vortex-bench`, vortex core) beyond severing this
   repo's dependency on them.
-- (Refine during brainstorming — e.g. whether v3 server/EC2 retirement is in or out of this
-  project's scope vs. the separate Phase-5 cutover.)
 
 ## Risks
 
 <!-- Numbered. For each: probability, impact, mitigation. -->
 
 1. **Cutover entanglement.** The v4 CI/contract lives only on the unmerged monorepo `ct/bench-v4`
-   branch; deletion of `benchmarks-website/` from the monorepo must reckon with code not yet on
-   `develop`. P=high; impact=severe; mitigation: sequence the deletion phase last and gate it on the
-   monorepo cutover state; coordinate explicitly with the user before any monorepo-side PR.
+   branch, and all three generations are live. P=high; impact=severe; mitigation: this project
+   touches nothing in the monorepo and defers all retirement/pruning, so it sequences around the
+   cutovers rather than colliding with them.
 2. **`vortex-utils` severance regressions.** Replacing the alias imports could subtly change hashing
    behavior. P=low; impact=moderate; mitigation: match the monorepo `hashbrown` pin exactly; verify
    `measurement_id` golden tests still pass.
@@ -89,8 +108,11 @@ without the `vortex-data/vortex` monorepo's CI, then retire the monorepo's copy.
    sites this project cannot see. P=low (this project shouldn't bump shapes); impact=severe;
    mitigation: BAN shape/version bumps as part of decoupling work (see Reviewer context).
 6. **Toolchain/lint drift.** The crates don't inherit the monorepo's strict `[workspace.lints]`;
-   "green" standalone may be looser. P=med; impact=minor; mitigation: decide in brainstorming whether
-   to port `[workspace.lints]` + `clippy.toml` or accept plain `-D warnings`.
+   "green" standalone may be looser. P=med; impact=minor; mitigation: decided — pragmatic lints
+   (`clippy -D warnings`, no heavy deny-list port); match the `1.91.0` toolchain.
+7. **Re-pointing live deploys.** All three generations are live, so re-pointing Vercel / the v3 EC2
+   host risks disrupting live traffic. P=med; impact=severe; mitigation: Phase 4 re-points are
+   validated / parallel where possible and gated on user confirmation; never a blind cutover.
 
 ---
 
