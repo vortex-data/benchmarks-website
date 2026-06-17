@@ -42,11 +42,20 @@ review is the consolidated Phase-2 gauntlet. (Other phases keep the default per-
 
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
-Current Position block below and resumes. Current state: **Phase 2 (Own correctness CI), sub-phase
-2.1 (rust-ci) IMPLEMENTED — `.github/workflows/rust-ci.yml` authored, cycle-1 gauntlet fixes
-applied, floating action tags, `actionlint` clean. Now implementing sub-phase 2.2 (web-ci) under
-PHASE-2 BATCHED REVIEW (no isolated gauntlet; consolidated at the phase boundary).** See the
-Verdict/Completion Ledger for what shipped and Carry-forward for accepted tradeoffs + Phase-3
+Current Position block below and resumes. Current state: **Phase 2 COMPLETE — both correctness
+workflows shipped (`rust-ci.yml`, `web-ci.yml`), consolidated `phase-3` gauntlet ACCEPTED (0
+must-fix), human gate = proceed (2026-06-17). Branch PUSHED to origin (first push; CI now running on
+GitHub — confirm both workflows go green to close the deferred Phase-2 `gh run list` exit criterion).
+NOW AT Phase 3 (Emitter→ingester contract) entry: sub-phase 3.1 (contract-doc), Step 2.1 (generate
+the JIT task-plan via `writing-plans`). No work in flight; clean seam.**
+
+**For the fresh conversation — review-granularity preference (user, 2026-06-17):** do NOT run a full
+multi-agent gauntlet for every small (~60 LoC) change. Batch related small changes and review them
+together, OR reserve the full gauntlet for substantive changes + phase boundaries. Phase 3's
+deliverables (a `CONTRACT.md` + a schema-version consistency check) are small — consider the same
+batched/consolidated review approach used for Phase 2 rather than a separate gauntlet per sub-phase.
+
+See the Verdict/Completion Ledger for what shipped and Carry-forward for accepted tradeoffs + Phase-3
 cleanup items.
 
 ## Goal
@@ -171,12 +180,12 @@ generations are explicitly **future work**, not this project.
 ## Current Position
 
 ```yaml
-phase: "2: Own correctness CI"   # current phase name (matches Phase Map)
+phase: "3: Emitter→ingester contract"   # current phase name (matches Phase Map)
 sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: awaiting-human-gate    # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
-last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
-phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-entry commit (Phase 2)
+status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+last_gate: 2026-06-17T19:10:20Z   # ISO 8601 timestamp of the most recent human gate, or null
+phase_entry_sha: null          # SHA of the phase-entry commit (Phase 3) — filled by commit 2 of the two-commit advance
 ```
 
 ---
@@ -324,3 +333,4 @@ phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-e
 
 - **Gauntlet:** phase-3 (consolidated, spec+correctness+maint) / accepted (cycles: 1) — 0 must-fix across all three lenses; verdict accept. Should-fix/nits applied in `f24b356` (concurrency-comment correctness fix in both workflows, `rust-ci` `timeout-minutes: 45`, node/components comment clarity) plus spine fixes (floating-tags tradeoff broadened to web-ci's `setup-node`, u-3 double-fire-de-dup-claim correction, 2.2 task-plan pointer de-dangled). Sub-phase 2.1's earlier pr-2 cycle-1 is subsumed here per PHASE-2 BATCHED REVIEW.
 - **Exit criteria:** `actionlint .github/workflows/*.yml` → 0 **PASS**. The `gh run list … → success` criteria are **DEFERRED to the single final push** (STACKING MODE pushes nothing until Phase-4 wrap-up); all CI step-commands verified green locally (rust: Phase-1 green bar incl. fmt/clippy/build/nextest/doctest; web: format/lint/build + 301 tests). Known Class-B reconciliation surfaced at the gate.
+- **Human gate:** 2026-06-17T19:10:20Z — **proceed** (STACKING MODE: no per-phase merge; advance to Phase 3 on the same branch). At the user's request the branch was **PUSHED to origin** (first push — carries Phase 1 + Phase 2; triggers `rust-ci` + `web-ci` on GitHub, which confirms the deferred `gh run list → success` exit criterion once the runs land).
