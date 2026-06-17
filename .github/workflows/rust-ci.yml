@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Rust CI
+
+on:
+  push:
+  pull_request:
+
+# Least privilege: correctness CI only reads the checkout — no writes, no creds.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (a push to a PR'd branch fires both
+# `push` and `pull_request`).
+concurrency:
+  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: fmt, clippy, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # rustup installs the pinned toolchain (channel + rustfmt/clippy components)
+      # from rust-toolchain.toml on first cargo use; this step makes that explicit
+      # and logs the resolved versions for debugging.
+      - name: Show toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          cargo fmt --version
+          cargo clippy --version
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --locked
+
+      - name: Test (nextest)
+        run: cargo nextest run --workspace --locked
+
+      - name: Doctests
+        run: cargo test --doc --workspace --locked
