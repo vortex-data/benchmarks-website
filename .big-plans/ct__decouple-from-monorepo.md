@@ -30,13 +30,24 @@ big-plans' default per-phase merge. Concretely, for a fresh conversation resumin
 - **Pushing:** nothing has been pushed yet. Do not push until the user asks (the single final PR
   is when the push happens, unless the user requests an earlier push).
 
+**PHASE-2 BATCHED REVIEW (user decision, 2026-06-17).** Phase 2's sub-phases (2.1 rust-ci, 2.2
+web-ci) are small CI-config units; a full per-sub-phase gauntlet is disproportionate. For Phase 2
+ONLY, the per-sub-phase gauntlet checkpoints (Step 2.3) are REPLACED by lightweight checks (SDD
+per-task spec/quality review + `actionlint`) during each sub-phase, plus ONE consolidated gauntlet
+(`phase-3`) over the full Phase-2 `.github/` diff at the phase boundary (Step 3.2) — reviewing both
+workflows together, including the 2.1 cycle-1 gauntlet fixes (cache-ordering, concurrency key,
+naming) that already landed. The 2.1 cycle-1 gauntlet already ran once and its must-fix items were
+addressed (SHA-pin reverted to floating tags per the accepted tradeoff above); 2.1's authoritative
+review is the consolidated Phase-2 gauntlet. (Other phases keep the default per-sub-phase cadence.)
+
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
-Current Position block below and resumes. Current state: **Phase 1 complete + gauntlet-accepted +
-gated (proceed); resuming at Phase 2 (Own correctness CI), sub-phase 2.1 (rust-ci), Step 2.1
-(generate the JIT task-plan via `writing-plans`).** No work is in flight mid-sub-phase; the seam is
-clean. See the Verdict/Completion Ledger for what shipped and the Carry-forward > Deferred work for
-Phase-3 cleanup items.
+Current Position block below and resumes. Current state: **Phase 2 (Own correctness CI), sub-phase
+2.1 (rust-ci) IMPLEMENTED — `.github/workflows/rust-ci.yml` authored, cycle-1 gauntlet fixes
+applied, floating action tags, `actionlint` clean. Now implementing sub-phase 2.2 (web-ci) under
+PHASE-2 BATCHED REVIEW (no isolated gauntlet; consolidated at the phase boundary).** See the
+Verdict/Completion Ledger for what shipped and Carry-forward for accepted tradeoffs + Phase-3
+cleanup items.
 
 ## Goal
 
@@ -161,9 +172,9 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "2: Own correctness CI"   # current phase name (matches Phase Map)
-sub_phase: "2.1 rust-ci"       # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: "2.2 web-ci"        # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-entry commit (Phase 2)
 ```
@@ -254,6 +265,7 @@ phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-e
 
 #### Accepted tradeoffs
 
+- **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **third-party actions use floating `@vN` tags, not commit SHAs** (gauntlet u-1, must-fix → OVERRIDDEN by user decision 2026-06-17). Decision: USE floating tags (`actions/checkout@v4`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). The supply-chain risk of mutable tags is accepted in exchange for simpler maintenance and auto-tracking the latest `vN` release; the job is least-privilege (`permissions: contents: read`). This OVERRIDES the gauntlet correctness lens's must-fix and the monorepo's SHA-pin convention. DO NOT re-flag.
 - **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **`push:` trigger has no `branches:` filter** (gauntlet u-3, should-fix). Decision: KEEP the bare `push:`. STACKING MODE opens no PR until the final wrap-up, so the Phase-2 exit criterion (`gh run list --branch ct/decouple-from-monorepo --workflow rust-ci.yml → success`) can only be satisfied by a `push`-triggered run on the feature branch — a `branches:` filter that excluded `ct/decouple-from-monorepo` would make the exit criterion unsatisfiable. The push+`pull_request` double-fire (once a PR exists) is de-duped by the `concurrency` group. DO NOT re-flag.
 - **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **`cargo build --workspace --locked` overlaps `cargo clippy --all-targets`** (gauntlet u-4, should-fix). Decision: KEEP the explicit `Build` step — it is a spec-mandated check (Phase Map 2.1 scope lists `build --locked`) and serves as an explicitly-named build gate in the CI UI distinct from the lint step. The cached re-compile cost is negligible. DO NOT re-flag.
 - **Sub-phase 2.1** (`.github/workflows/rust-ci.yml`), **clippy/nextest run without `--all-features`** (gauntlet u-6 / u-10, should-fix / nit). Decision: do NOT add `--all-features`. The spec scopes the checks to default features; the workspace crates (`vortex-bench-server`, `vortex-bench-migrate`) define no own feature matrix that needs coverage, and `--all-features` would pull non-default dependency feature combinations that were never built/tested in Phase 1 (risking spurious CI failures). DO NOT re-flag.
