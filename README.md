@@ -47,6 +47,10 @@ part of the decoupling work below.
 
 ## Decoupling status
 
+The planning context and proposed phase plan for this work live in
+[`.big-plans/decoupling-brief.md`](.big-plans/decoupling-brief.md) (on the
+`ct/decouple-from-monorepo` branch).
+
 Done:
 
 - [x] Code extracted into this standalone repository.
