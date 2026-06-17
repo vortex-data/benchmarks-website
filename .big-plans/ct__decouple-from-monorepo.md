@@ -165,7 +165,7 @@ sub_phase: null                # current sub-phase name (matches Phase Map); nul
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
 status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T18:14:38Z   # ISO 8601 timestamp of the most recent human gate, or null
-phase_entry_sha: null          # SHA of the phase-entry commit; filled by commit 2 of the advance
+phase_entry_sha: 6ccb60d1dfe88b97c2aeaa3a0d7d81026f076376   # SHA of the phase-entry commit (Phase 2)
 ```
 
 ---
