@@ -230,7 +230,8 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 
 #### Deferred work
 
-- **Sub-phase 1.1**, `server/src/read_model.rs:36` / `server/src/app.rs:41` / `migrate/src/migrate/accum.rs:30`, **nit**: the new `use hashbrown::{HashMap,HashSet}` imports landed at the end of the extern-crate group rather than in alphabetical position. Deferral rationale: sub-phase 1.3 adds the stable-compatible `rustfmt.toml` and `cargo fmt` (with `imports_granularity`/`group_imports`) reorders these automatically — fixing by hand now would be undone/duplicated by the formatter.
+- **Sub-phase 1.1**, `server/src/read_model.rs:36` / `server/src/app.rs:41` / `migrate/src/migrate/accum.rs:30`, **nit**: the new `use hashbrown::{HashMap,HashSet}` imports landed at the end of the extern-crate group rather than in alphabetical position. Deferral rationale: sub-phase 1.3 adds the stable-compatible `rustfmt.toml` and `cargo fmt` (with `imports_granularity`/`group_imports`) reorders these automatically — fixing by hand now would be undone/duplicated by the formatter. **RESOLVED in sub-phase 1.3** (the `cargo fmt` reformat reordered them).
+- **Phase 1 phase-end (→ Phase 3 cleanup)**, **nit cluster**: stale monorepo-perspective references in docs/comments — (a) the `benchmarks-website/`-prefixed path in the golden-JSON note (regenerated from `server/tests/measurement_id_golden.rs`'s note string), (b) `benchmarks-website/`-prefixed paths + monorepo PR numbers in vendored `migrations/*.sql` comments + `migrations/README.md`, (c) dead rustdoc links to `../../../vortex-bench/src/v3.rs` in `server/src/records.rs:123` + `server/src/schema.rs:218`, and the stale `migrate/src/lib.rs` lockstep-site mention in `web/lib/schema-version.ts:13`. Deferral rationale: Phase 3 (emitter→ingester contract doc) already owns stale-reference cleanup + the `schema-version.ts` lockstep-list fix; the vendored-SQL comments are frozen-post-apply (edit only when next touched); none affect the build/tests. Bundling the cleanup into Phase 3 avoids churning vendored files at the phase boundary.
 
 ---
 
@@ -255,3 +256,8 @@ phase_entry_sha: 5de7864b2ccace2ad42f17eb2e96a0787d1cac08   # SHA of the phase-e
 - **Shipped:** stable-compatible `rustfmt.toml` (`style_edition = "2024"` + `use_field_init_shorthand = true`; nightly-only opts dropped); `cargo fmt --all` reformat (reordered the 3 hashbrown imports — resolves the deferred 1.1 nit). Full green bar: `build --locked`, `fmt --check`, `clippy -D warnings`, `nextest` (229 passed / 4 Docker-gated skip), web `format:check`/`lint`/`build` all green.
 - **Gauntlet:** pr-2 / accepted (cycles: 1) — zero findings; diff narrowed past the 200KB ceiling (excluding generated `Cargo.lock` + planning docs).
 - **Deferred:** 0 items. (The deferred 1.1 import-ordering nit is now RESOLVED by the fmt reformat.)
+
+#### Phase 1 gate
+
+- **Gauntlet:** phase-4 / accepted (cycles: 1) — 4 lenses (spec/correctness/maint/arch), 0 must-fix, 0 should-fix; nits deferred to Phase 3 stale-reference cleanup (see Carry-forward > Deferred work).
+- **Exit criteria:** all PASS — `cargo build --workspace --locked`, `cargo nextest` (229 passed / 4 Docker-gated skip), web `pnpm build`; plus `cargo fmt --check` + `cargo clippy -D warnings` clean.
