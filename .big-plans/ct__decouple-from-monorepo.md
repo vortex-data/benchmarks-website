@@ -191,9 +191,9 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "3: Emitter→ingester contract"   # current phase name (matches Phase Map)
-sub_phase: "3.2 version-check"  # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-17T19:10:20Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-entry commit (Phase 3)
 ```
