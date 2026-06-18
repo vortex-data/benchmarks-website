@@ -32,7 +32,7 @@ export function dockerAvailable(): boolean {
 }
 
 /** Absolute path of the repository's `migrations/` directory. */
-const MIGRATIONS_DIR = fileURLToPath(new URL('../../../migrations', import.meta.url));
+const MIGRATIONS_DIR = fileURLToPath(new URL('../../migrations', import.meta.url));
 
 /**
  * Every migration file in runner order (sorted filenames), so the suites

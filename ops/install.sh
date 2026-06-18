@@ -18,9 +18,9 @@
 #      systemd units have a stable path (the repo can move).
 #   6. Enable + start the server, deploy timer, and backup timer.
 #
-# Usage:
-#   ./benchmarks-website/ops/install.sh
-#   REPO_DIR=$HOME/vortex ./benchmarks-website/ops/install.sh
+# Usage (run from this repo's checkout root — the ops scripts live at ./ops/):
+#   ./ops/install.sh
+#   REPO_DIR=$HOME/benchmarks-website ./ops/install.sh
 #
 # Only REPO_DIR is honored as an env override; the run user, state-dir,
 # env-file, systemd-dir, and sudoers-file paths are pinned (they have
@@ -37,13 +37,13 @@ set -euo pipefail
 # units before this script copies them into /etc/systemd/system.
 RUN_USER="ec2-user"
 RUN_GROUP="${RUN_USER}"
-REPO_DIR="${REPO_DIR:-$HOME/vortex}"
+REPO_DIR="${REPO_DIR:-$HOME/benchmarks-website}"
 STATE_DIR="/var/lib/vortex-bench"
 ENV_FILE="/etc/vortex-bench.env"
 SYSTEMD_DIR="/etc/systemd/system"
 SUDOERS_FILE="/etc/sudoers.d/vortex-bench"
 
-ops_dir="${REPO_DIR}/benchmarks-website/ops"
+ops_dir="${REPO_DIR}/ops"
 if [ ! -d "$ops_dir" ]; then
     echo "ERROR: ${ops_dir} not found. Set REPO_DIR=<repo path>." >&2
     exit 2
@@ -72,7 +72,7 @@ if [ -d "${REPO_DIR}/.git" ]; then
         git@*|ssh://*)
             echo "WARNING: ${REPO_DIR}'s origin is ${origin_url}." >&2
             echo "  The deploy timer cannot fetch over SSH (no agent). Fix with:" >&2
-            echo "    git -C ${REPO_DIR} remote set-url origin https://github.com/vortex-data/vortex.git" >&2
+            echo "    git -C ${REPO_DIR} remote set-url origin https://github.com/vortex-data/benchmarks-website.git" >&2
             ;;
     esac
 fi

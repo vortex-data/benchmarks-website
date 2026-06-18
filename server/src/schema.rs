@@ -208,15 +208,17 @@ CREATE TABLE IF NOT EXISTS vector_search_runs (
 "#;
 
 /// Schema version expected by the server. The ingest envelope's
-/// `run_meta.schema_version` must match this exactly at alpha.
+/// `run_meta.schema_version` must match this exactly at alpha. See
+/// `CONTRACT.md` at the repo root for the full versioned contract.
 ///
-/// Coupled sites that MUST agree on this value (see
-/// `benchmarks-website/AGENTS.md` → "Wire shapes are a coordinated change"):
+/// Coupled sites that MUST agree on this value (see `AGENTS.md` →
+/// "Wire shapes are a coordinated change"):
 ///
-/// - This constant.
-/// - The producer-side wire-shape source of truth in
-///   [`vortex_bench::v3`](../../../vortex-bench/src/v3.rs).
-/// - The CI ingest wrapper at `scripts/post-ingest.py`, which fills the
+/// - This constant (the in-repo source of truth).
+/// - The web mirror `web/lib/schema-version.ts`.
+/// - The producer-side wire-shape source of truth `vortex_bench::v3` in the
+///   `vortex-data/vortex` monorepo (`vortex-bench/src/v3.rs`).
+/// - The CI ingest wrapper `scripts/post-ingest.py` (monorepo), which fills the
 ///   envelope's `run_meta.schema_version` from a hardcoded Python constant.
 ///   Bumping `SCHEMA_VERSION` without bumping `post-ingest.py` makes every
 ///   CI run 400 at ingest until the script is updated.

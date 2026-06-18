@@ -11,8 +11,8 @@
 #   3. If origin SHA == last-deployed SHA → exit 0.
 #   4. Else: git diff against a path filter. If nothing in the filter
 #      changed, sync the working tree (destructive checkout) to the
-#      new SHA, update the stamp, exit 0. (Skips a build for monorepo
-#      changes that don't touch the server.)
+#      new SHA, update the stamp, exit 0. (Skips a build for commits that
+#      only touch non-server paths, e.g. web/ or docs/.)
 #   5. Else: sync working tree + cargo build --release -p vortex-bench-server.
 #   6. Compare new binary's sha256 to the currently-running symlink target.
 #      If unchanged (cargo did no real work), update stamp + exit 0.
@@ -124,12 +124,14 @@ if [ "$force" = "0" ] && [ "$new_sha" = "$last_sha" ]; then
 fi
 
 # --- Path filter ---
-# Rebuild + restart only when commits in the range touch website code,
-# the workspace lockfile, or workspace Cargo manifests. Other changes
-# (e.g. vortex-array fixes) update the working tree but don't restart.
+# Rebuild + restart only when commits in the range touch the v3 server/migrator
+# code, the workspace lockfile, or workspace Cargo manifests. Other changes
+# (e.g. web/, docs/) update the working tree but don't restart. Paths are
+# repo-root-relative (this standalone repo's workspace is at the root; the old
+# monorepo `benchmarks-website/` prefix does not apply here).
 filter_paths=(
-    benchmarks-website/server
-    benchmarks-website/migrate
+    server
+    migrate
     Cargo.lock
     Cargo.toml
 )
@@ -164,7 +166,7 @@ if ! git checkout --quiet --force --detach "$new_sha"; then
 fi
 
 if [ "$relevant_changed" = "0" ]; then
-    log "no website-relevant paths changed in ${last_sha:0:7}..${new_sha:0:7}; skipping rebuild"
+    log "no server/migrator paths changed in ${last_sha:0:7}..${new_sha:0:7}; skipping rebuild"
     # Atomic stamp write so a kill mid-redirect cannot leave a truncated
     # stamp the next tick would treat as a vanished commit.
     printf '%s\n' "$new_sha" > "${STAMP_FILE}.tmp"

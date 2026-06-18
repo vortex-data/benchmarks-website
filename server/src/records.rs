@@ -119,8 +119,9 @@ pub enum Record {
 
 /// SQL query suite measurement (TPC-H, ClickBench, ...). Lands in
 /// `query_measurements`. Field names match the schema columns; per-suite dim
-/// values are documented on
-/// [`vortex_bench::v3::benchmark_dataset_dims`](../../../vortex-bench/src/v3.rs).
+/// values are produced by `vortex_bench::v3::benchmark_dataset_dims` in the
+/// `vortex-data/vortex` monorepo (`vortex-bench/src/v3.rs`). See `CONTRACT.md`
+/// at the repo root for the full emitter→ingester contract.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueryMeasurement {

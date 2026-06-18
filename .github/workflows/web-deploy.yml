@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Deploy the Next.js v4 site to this repo's OWN Vercel project via the Vercel CLI
+# (git-integration is OFF on that project — Phase-4 decision (d)). The CLI is keyed
+# by VERCEL_ORG_ID + VERCEL_PROJECT_ID (vars, the NEW independently-owned project)
+# and authenticated by VERCEL_TOKEN (secret), so this repo's deploys never race the
+# monorepo's deploys to ITS project.
+#
+# The Vercel project's Root Directory must be set to `web/` (Phase-4.2 console step);
+# the CLI runs from the repo root and uses the pulled project settings to build web/.
+#
+# Trigger: production deploy on push to `develop` (this repo's main branch after the
+# decouple merge); `workflow_dispatch` for manual prod/preview runs during setup. No
+# pull_request/feature-branch trigger — the project + secrets are provisioned in 4.2
+# and a feature-branch preview flow is out of scope here. End-to-end deploy is
+# validated in Phase 4.2 once creds exist; 4.1 only authors + actionlint-validates.
+
+name: Web Deploy
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Vercel target environment"
+        type: choice
+        options: [preview, production]
+        default: preview
+
+concurrency:
+  # Include the event name so a manual workflow_dispatch (e.g. a preview deploy) on
+  # `develop` does NOT land in the same group as — and thus cancel — an in-flight
+  # push-triggered production deploy on the same ref.
+  group: web-deploy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    name: Build & deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        # vercel@latest is deliberately unpinned: the Vercel CLI is backward-compatible
+        # for the pull/build/deploy --prebuilt flow used here. If a CLI release ever breaks
+        # this flow, pin a specific major (e.g. vercel@<N>) here.
+        run: npm install -g vercel@latest
+
+      - name: Resolve target environment
+        id: target
+        # push to develop => production; manual dispatch uses the input.
+        # Expression context is passed through env: rather than interpolated into the
+        # shell body, so a value can never be parsed as shell (injection-safe).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          set -Eeuo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "env=${INPUT_ENV}" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=production" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment="${{ steps.target.outputs.env }}" --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build
+        run: |
+          set -Eeuo pipefail
+          if [ "${{ steps.target.outputs.env }}" = "production" ]; then
+            vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          else
+            vercel build --token="${{ secrets.VERCEL_TOKEN }}"
+          fi
+
+      - name: Deploy (prebuilt)
+        run: |
+          set -Eeuo pipefail
+          if [ "${{ steps.target.outputs.env }}" = "production" ]; then
+            vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          else
+            vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}"
+          fi
