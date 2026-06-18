@@ -20,6 +20,9 @@
 name: schema-deploy
 
 on:
+  # TODO(phase-4.2): add `push: { branches: [develop] }` once the AWS OIDC trust is
+  # extended to this repo (per the Phase-4.2 secrets runbook) so a merge to develop
+  # auto-applies migrations. Until then this is workflow_dispatch-only (see header).
   workflow_dispatch:
     inputs:
       dry_run:
@@ -39,6 +42,7 @@ concurrency:
 
 jobs:
   apply:
+    name: Apply schema migrations
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -87,7 +91,16 @@ jobs:
           export PGSSLROOTCERT="${RUNNER_TEMP}/rds-global-bundle.pem"
           if [ "${DRY_RUN}" = "true" ]; then
             echo "dry_run: reporting status only, applying nothing"
-            uv run --no-project scripts/migrate-schema.py status
+            # `status` exits 1 on drift (pending/orphaned migrations). For a dry_run that
+            # is the EXPECTED, informational result — not an infra error — so don't let it
+            # fail the step under `set -e`. (The `if` condition exempts the command from
+            # set -e.) The non-dry_run branch below intentionally lets a post-apply `status`
+            # non-zero fail the step: drift after an apply IS a real problem.
+            if uv run --no-project scripts/migrate-schema.py status; then
+              echo "dry_run: no drift — migration set matches the ledger."
+            else
+              echo "dry_run: drift detected (pending or orphaned migrations) — re-run without dry_run to apply."
+            fi
           else
             uv run --no-project scripts/migrate-schema.py apply
             uv run --no-project scripts/migrate-schema.py status

@@ -30,7 +30,10 @@ on:
         default: preview
 
 concurrency:
-  group: web-deploy-${{ github.ref }}
+  # Include the event name so a manual workflow_dispatch (e.g. a preview deploy) on
+  # `develop` does NOT land in the same group as — and thus cancel — an in-flight
+  # push-triggered production deploy on the same ref.
+  group: web-deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -50,15 +53,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Vercel CLI
+        # vercel@latest is deliberately unpinned: the Vercel CLI is backward-compatible
+        # for the pull/build/deploy --prebuilt flow used here. If a CLI release ever breaks
+        # this flow, pin a specific major (e.g. vercel@<N>) here.
         run: npm install -g vercel@latest
 
       - name: Resolve target environment
         id: target
         # push to develop => production; manual dispatch uses the input.
+        # Expression context is passed through env: rather than interpolated into the
+        # shell body, so a value can never be parsed as shell (injection-safe).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
         run: |
           set -Eeuo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "env=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "env=${INPUT_ENV}" >> "$GITHUB_OUTPUT"
           else
             echo "env=production" >> "$GITHUB_OUTPUT"
           fi
