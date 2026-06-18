@@ -26,13 +26,15 @@ The operator runbook is [`ops/README.md`](ops/README.md).
   [`vortex-bench/src/v3.rs`](../vortex-bench/src/v3.rs), and (until cutover)
   [`migrate/src/classifier.rs`](migrate/src/classifier.rs) must agree.
   Bumping a shape means changing all three plus the snapshot fixtures in
-  one commit. `SCHEMA_VERSION` is the version literal coupled across two
-  named sites: [`server/src/schema.rs`](server/src/schema.rs) (source of
-  truth) and [`scripts/post-ingest.py`](../scripts/post-ingest.py) (the
-  CI ingest wrapper, which hardcodes it as a Python literal). Bump in
-  lockstep or every CI ingest run 400s. The server-side validation in
+  one commit. `SCHEMA_VERSION` is the version literal coupled across
+  [`server/src/schema.rs`](server/src/schema.rs) (in-repo source of
+  truth), [`web/lib/schema-version.ts`](web/lib/schema-version.ts) (the
+  in-repo web mirror), and [`scripts/post-ingest.py`](../scripts/post-ingest.py)
+  (the monorepo CI ingest wrapper, which hardcodes it as a Python literal).
+  Bump in lockstep or every CI ingest run 400s. The server-side validation in
   `records.rs` + `ingest.rs` and the echo in `/health` all consume the
-  constant through `crate::schema`.
+  constant through `crate::schema`. The full versioned contract lives in
+  [`CONTRACT.md`](CONTRACT.md).
 - **Numeric `?n=` is clamped to 1000; `?n=all` is the uncapped escape
   hatch.** HTML routes hydrate from the materialized latest-100 shard
   artifact by default; `?n=all` is an explicit opt-in
