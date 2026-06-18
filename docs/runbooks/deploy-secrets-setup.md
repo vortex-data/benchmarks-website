@@ -161,11 +161,10 @@ vercel env add BENCH_DB_HOST preview
 
 Or use the Vercel Dashboard: Project → Settings → Environment Variables → Add.
 
-After setting all variables, verify the deployment via **Section E**: `E.1` builds the project, and a
-production deploy (run `web-deploy.yml`, or the local `vercel pull && vercel build && vercel deploy
---prebuilt` sequence — `deploy --prebuilt` requires the prior `build`) brings the pool up. Then check
-the Vercel function logs for any `Missing required environment variable` errors from `web/lib/db.ts`;
-a successful `/api/health` response confirms the pool is connected.
+After setting all variables, verify via **Section E** in order: `E.1` builds the project and `E.3`
+runs the first real deploy (`web-deploy.yml`). Only after `E.3` are there deployed functions to
+inspect — then check the Vercel function logs for any `Missing required environment variable` errors
+from `web/lib/db.ts`; a successful `/api/health` response confirms the pool is connected.
 
 ---
 
@@ -386,13 +385,15 @@ mode — the workflow does not fail on drift, it reports. The job exits `0`.
 variable value, and the `RDS_BENCH_*` connection coordinates. The job log will identify the failing
 step.
 
-> **Bootstrap note (dry-run vs apply):** this dry-run (`status` only) runs fine against a
-> pre-bootstrap database — it reports all migrations as pending (drift) and still exits `0`; it does
-> NOT require the master-applied bootstrap first and does NOT raise `PermissionError` (that check
-> lives only on the `apply` path). The bootstrap matters for the FIRST *non-dry* apply: migrations
-> `002`, `004`, `005`, `006`, `007` must be applied by the RDS master out-of-band first, or the
-> `apply` run will fail its `requires-superuser` preflight with a `PermissionError`. See Section D.5
-> and `migrations/README.md` § Bootstrap ordering.
+> **Bootstrap note (dry-run vs apply):** this dry-run connects as the `migrator` role, so migration
+> `002` (which creates that role) must already be master-applied — otherwise the job fails at Postgres
+> connection time (`role "migrator" does not exist`), not at any preflight. Given the `migrator` role
+> exists, the `status` dry-run does NOT need the other `requires-superuser` migrations (`004`–`007`)
+> applied: it reports them as pending (drift) and still exits `0`, and it never raises
+> `PermissionError` (that preflight lives only on the `apply` path). The FIRST *non-dry* `apply`
+> requires ALL of `002`/`004`/`005`/`006`/`007` master-applied first, or it fails the
+> `requires-superuser` preflight with a `PermissionError`. See Section D.5 and `migrations/README.md`
+> § Bootstrap ordering.
 
 ### E.3 Web deploy end-to-end (GitHub Actions credential path)
 
