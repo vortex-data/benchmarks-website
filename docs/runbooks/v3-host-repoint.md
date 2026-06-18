@@ -133,6 +133,8 @@ monorepo deploy points at a commit absent from the fresh clone, which `deploy.sh
 rebuild" — but Option B is unconditional and is the safer choice immediately after a re-point:
 
 ```bash
+cd /home/ec2-user/benchmarks-website   # Option B's ./ops/ path is relative to the checkout root
+
 # Option B (recommended after a re-point): unconditional full rebuild
 # (run as ec2-user — the sudoers fragment only authorizes ec2-user to passwordless-start the deploy service)
 ./ops/force-rebuild.sh
@@ -147,13 +149,16 @@ Follow the deploy log in real time:
 journalctl -fu vortex-bench-deploy.service
 ```
 
-Expected output: lines showing `building <sha>`, `swapped symlink`, `deploy ok: <sha>`. (A successful
-`git fetch` is silent — `deploy.sh` runs it with `--quiet` and logs only on fetch FAILURE — so the
-absence of a fetch line is normal.) If the log shows errors (fetch failed, build failed) — do not
-proceed; see the rollback section.
+Expected output (trailing context varies): `building <sha> (was <prev-sha>|<empty>)`, then
+`swapped symlink → <versioned-binary-path>`, then `deploy ok: <sha> → live (binary <ts>)`. (A
+successful `git fetch` is silent — `deploy.sh` runs it with `--quiet` and logs only on fetch FAILURE,
+so the absence of a fetch line is normal; on a first run after a fresh clone the `(was …)` field is
+empty.) If the log shows errors (fetch failed, build failed) — do not proceed; see the rollback
+section.
 
-To confirm the running build matches the new repo (see `ops/README.md` § "Identifying the running
-build"):
+To confirm the running build matches the new repo (`ops/README.md` § "Identifying the running build"
+covers the same identifiers — but note its "three agree" wording predates the standalone layout: the
+binary symlink encodes a build timestamp, not a commit SHA, as the comments below make explicit):
 
 ```bash
 # The deployed-commit SHA appears in TWO places that must match each other:
@@ -198,17 +203,18 @@ The old `~/vortex` checkout is untouched by the steps above. To revert to the mo
    REPO_DIR=/home/ec2-user/vortex
    DEPLOY_BRANCH=develop
    ```
-2. Re-run install from the old checkout, passing `REPO_DIR` explicitly (install.sh does not read
-   `/etc/vortex-bench.env`; be explicit so a stray `REPO_DIR` exported while following the forward
-   steps can't redirect the rollback back at the standalone repo):
+2. Re-run install from the old checkout, passing `REPO_DIR` explicitly (install.sh does not use
+   `/etc/vortex-bench.env` to resolve `REPO_DIR`; be explicit so a stray `REPO_DIR` exported while
+   following the forward steps can't redirect the rollback back at the standalone repo):
    ```bash
    ls /home/ec2-user/vortex/benchmarks-website/ops/install.sh   # confirm the old monorepo checkout is intact
    cd /home/ec2-user/vortex/benchmarks-website
    REPO_DIR=/home/ec2-user/vortex ./ops/install.sh
    ```
-   (This invokes the monorepo's OWN `install.sh` — which resolves `ops_dir` as
-   `${REPO_DIR}/benchmarks-website/ops`, the monorepo layout — not the standalone repo's `install.sh`.
-   Both honor the same `REPO_DIR` env interface; the explicit value avoids picking up a stray export.)
+   (This invokes the monorepo checkout's OWN `install.sh` — which uses the monorepo layout, not this
+   standalone repo's `install.sh`. Both honor the same `REPO_DIR` env interface; the explicit value
+   avoids picking up a stray export. Sanity-check the monorepo copy's layout if unsure:
+   `grep ops_dir /home/ec2-user/vortex/benchmarks-website/ops/install.sh`.)
 3. Force a rebuild:
    ```bash
    sudo systemctl start vortex-bench-deploy.service
