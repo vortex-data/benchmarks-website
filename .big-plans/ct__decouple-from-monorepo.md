@@ -194,7 +194,7 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "4: Deploy + secrets/infra ownership"   # current phase name (matches Phase Map)
-sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: "4.1 deploy-workflows"   # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
 status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-18T16:40:12Z   # ISO 8601 timestamp of the most recent human gate, or null
