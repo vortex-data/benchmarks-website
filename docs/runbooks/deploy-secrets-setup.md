@@ -34,7 +34,7 @@ Before starting, confirm you have:
 - **GitHub repo admin** on `vortex-data/benchmarks-website` (to set Actions secrets and vars).
 - **AWS IAM permissions** on account `245040174862` to edit the OIDC trust policy
   (`iam:UpdateAssumeRolePolicy` on `GitHubBenchmarkSchemaRole` — the only role this runbook modifies;
-  `GitHubBenchmarkIngestRole` is left unchanged in Phase 4, see Section D.4).
+  `GitHubBenchmarkIngestRole` is left unchanged in Phase 4, see the note at the end of Section D.4).
 - CLI tools authenticated:
   - `gh` — `gh auth status` shows `vortex-data/benchmarks-website` accessible.
   - `vercel` — `vercel whoami` shows the correct team/org.
@@ -81,7 +81,7 @@ will point production at the winning project at that time.
 3. **Note the project's generated domains.**
 
    After creation, Vercel assigns a preview domain (e.g. `benchmarks-website-<hash>.vercel.app`) and
-   optionally a production domain. Record these for the keep-warm smoke-test later (Section E.3).
+   optionally a production domain. Record these for the keep-warm smoke-test later (Section E.4).
 
 4. **Record `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`.**
 
@@ -359,7 +359,7 @@ unset VERCEL_TOKEN                                      # drop the secret from t
 created in Section A (not the monorepo's project ID), and that `VERCEL_TOKEN` has deploy scope on it.
 
 > The full GitHub-Actions credential path (the `VERCEL_TOKEN` *secret* plus the variables, exactly as
-> the workflow consumes them) is validated end-to-end by **E.4** below, not by this local check.
+> the workflow consumes them) is validated end-to-end by **E.3** below, not by this local check.
 
 ### E.2 Schema-deploy OIDC → IAM → RDS dry run
 
@@ -386,30 +386,20 @@ mode — the workflow does not fail on drift, it reports. The job exits `0`.
 variable value, and the `RDS_BENCH_*` connection coordinates. The job log will identify the failing
 step.
 
-> **Bootstrap prerequisite:** if this is the first run ever against this RDS instance, migrations
-> `002`, `004`, `005`, `006`, and `007` must have been applied by the RDS master user out-of-band
-> before this workflow can proceed (see Section D.5 and `migrations/README.md` § Bootstrap
-> ordering). A `PermissionError` in the job log means a `requires-superuser` migration has not been
-> pre-applied.
+> **Bootstrap note (dry-run vs apply):** this dry-run (`status` only) runs fine against a
+> pre-bootstrap database — it reports all migrations as pending (drift) and still exits `0`; it does
+> NOT require the master-applied bootstrap first and does NOT raise `PermissionError` (that check
+> lives only on the `apply` path). The bootstrap matters for the FIRST *non-dry* apply: migrations
+> `002`, `004`, `005`, `006`, `007` must be applied by the RDS master out-of-band first, or the
+> `apply` run will fail its `requires-superuser` preflight with a `PermissionError`. See Section D.5
+> and `migrations/README.md` § Bootstrap ordering.
 
-### E.3 Keep-warm health-check (optional)
-
-Once `BENCH_SITE_BASE_URL` is set and at least one deploy has landed, `web-keep-warm.yml` pings
-`/api/health` on its schedule. To confirm it works immediately:
-
-```bash
-gh workflow run web-keep-warm.yml --repo vortex-data/benchmarks-website
-```
-
-**Expected:** the job GETs `$BENCH_SITE_BASE_URL/api/health` and receives HTTP `200`. A non-200 or
-connection error means the URL in `BENCH_SITE_BASE_URL` does not match the deployed project's
-domain (confirm against the domain noted in Section A, step 3).
-
-### E.4 Web deploy end-to-end (GitHub Actions credential path)
+### E.3 Web deploy end-to-end (GitHub Actions credential path)
 
 This validates the full deploy pipeline as the workflow runs it — the `VERCEL_TOKEN` **secret** plus
 the `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` **variables**, consumed by `web-deploy.yml` from the repo
-root. (E.1's local build does not exercise the Actions secret/variable path.)
+root. (E.1's local build does not exercise the Actions secret/variable path.) It also produces the
+first deployment that E.4's keep-warm check needs — run it before E.4.
 
 Trigger a preview deploy via `workflow_dispatch`:
 
@@ -426,6 +416,19 @@ preview deployment URL; the job exits `0`. Open the URL and confirm the site ren
 **If it fails:** a Vercel auth error means the `VERCEL_TOKEN` secret is missing or wrong-scoped; a
 "project not found" error means `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` are wrong (Section C.2). The job
 log identifies the failing step.
+
+### E.4 Keep-warm health-check (optional)
+
+After at least one deploy has landed (E.3) and `BENCH_SITE_BASE_URL` is set, `web-keep-warm.yml` pings
+`/api/health` on its schedule. To confirm it works immediately:
+
+```bash
+gh workflow run web-keep-warm.yml --repo vortex-data/benchmarks-website
+```
+
+**Expected:** the job GETs `$BENCH_SITE_BASE_URL/api/health` and receives HTTP `200`. A non-200 or
+connection error means the URL in `BENCH_SITE_BASE_URL` does not match the deployed project's
+domain (confirm against the domain noted in Section A, step 3).
 
 ---
 
