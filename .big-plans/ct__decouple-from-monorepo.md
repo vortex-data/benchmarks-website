@@ -68,15 +68,18 @@ the audit trail.
 
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
-Current Position block below and resumes. Current state: **Phase 3 COMPLETE — `CONTRACT.md`
-(versioned emitter→ingester contract) + the cross-anchor `schema-version` consistency check
-shipped; consolidated `phase-3` gauntlet ACCEPTED (cycles: 2, 0 must-fix at accept). Phase-3 gate
-first answered `abort` (2026-06-18T16:34:24Z), then RE-DECIDED `proceed` (2026-06-18T16:40:12Z) on
-re-invocation. NOW AT Phase 4 (Deploy + secrets/infra ownership) entry: sub-phase 4.1
-(deploy-workflows), Step 2.1 (generate the JIT task-plan via `writing-plans`). No work in flight;
-clean seam. Phase 4 has externalized side-effects — needs AWS + Vercel auth (each gated on user
-confirmation); Phase 4 returns to the DEFAULT per-sub-phase gauntlet cadence (no batched-review
-override).**
+Current Position block below and resumes. Current state: **Phase 4 (Deploy + secrets/infra ownership)
+ALL SUB-PHASES COMPLETE — 4.1 deploy-workflows (web-deploy/web-keep-warm/schema-deploy + vendored
+migrate-schema.py; pr-3 accepted, 2 cycles), 4.2 secrets-runbook (`docs/runbooks/deploy-secrets-setup.md`
++ `.gitignore` `.vercel`; pr-2 accepted, 6 cycles), 4.3 v3-host-repoint (ops env/deploy.sh/install.sh
+standalone-layout fixes + `docs/runbooks/v3-host-repoint.md`; pr-2 accepted, 5 cycles — OVER-INVESTED
+on temp v3 scaffolding per user, stopped). NOW AT the Phase-4 boundary (Phase 3): Step 3.1 exit-criteria
+→ Step 3.2 phase-4 gauntlet over the cumulative Phase-4 diff → Step 3.4 mandatory human gate. STACKING
+MODE: no per-phase PR/merge; the gate's "proceed" (this is the FINAL phase) routes to Phase 4 wrap-up
+(spine deletion + the single final PR for the whole branch). Externalized Phase-4 changes (Vercel/AWS/
+GitHub console + the v3 host re-point) are user-gated and documented in the two runbooks — NOT executed
+by this project. Exit-criteria note: the `vercel build` live check needs creds (user-confirmed at the
+gate); `actionlint` + `runbook file exists` are machine-checkable and pass.**
 
 **For the fresh conversation — review-granularity preference (user, 2026-06-17):** do NOT run a full
 multi-agent gauntlet for every small (~60 LoC) change. Batch related small changes and review them
@@ -210,7 +213,7 @@ generations are explicitly **future work**, not this project.
 
 ```yaml
 phase: "4: Deploy + secrets/infra ownership"   # current phase name (matches Phase Map)
-sub_phase: "4.3 v3-host-repoint"   # current sub-phase name (matches Phase Map); null between sub-phases
+sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
 status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-18T16:40:12Z   # ISO 8601 timestamp of the most recent human gate, or null
