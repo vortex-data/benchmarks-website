@@ -6,8 +6,8 @@
  * repo root for the full emitter→ingester contract.
  *
  * This constant must stay equal to the other anchors in one change or CI ingest
- * 400/409s. The in-repo anchor (checked by the sub-phase 3.2 consistency check
- * and by `schema-version.test.ts`):
+ * 400/409s. The in-repo anchor (checked by the consistency check in
+ * `schema-version.test.ts`):
  *
  * - `server/src/schema.rs` (`pub const SCHEMA_VERSION: i32`) — source of truth.
  *

@@ -26,8 +26,9 @@ below). Bumping it is a coordinated, multi-site change.
 
 ### In-repo anchors (testable here)
 
-These two constants live in THIS repository and MUST agree. The sub-phase 3.2 consistency
-check asserts this automatically; `web/lib/schema-version.test.ts` also pins the TS side.
+These two constants live in THIS repository and MUST agree. The consistency check in
+`web/lib/schema-version.test.ts` asserts this automatically — it reads `server/src/schema.rs`
+and this doc and compares both against the TS const.
 
 | Anchor | File | Form |
 |---|---|---|
@@ -117,13 +118,12 @@ its fact table (see `server/src/schema.rs` for the DDL). Records are
 | Condition | Status |
 |---|---|
 | Happy path | `200` with `{ "inserted": N, "updated": M }` |
-| Malformed JSON or unknown field at the envelope level | `400` |
-| Unknown `kind`, unknown record field, or per-record validation failure | `400` with the offending record's index |
-| Record `commit_sha` ≠ envelope `commit.sha` | `400` with the record index |
-| Missing or invalid bearer token | `401` |
-| `schema_version` **newer** than the server expects | `409` |
-| `schema_version` **older** than the server expects | `400` (malformed-envelope path) |
-| Other server error | `500` |
+| Malformed JSON, an unknown field (envelope **or** record level), or an unknown record `kind` | `400`, body `{ "error": "malformed", … }` — **no** `record_index` (these fail during envelope deserialization, before the per-record loop runs) |
+| A per-record validation failure (e.g. invalid `storage`, partially-populated memory fields), or a record whose `commit_sha` ≠ the envelope's `commit.sha` | `400`, body `{ "error": "record", "record_index": N, … }` |
+| Missing or invalid bearer token | `401`, body `{ "error": "unauthorized" }` |
+| `schema_version` **newer** than the server expects | `409`, body `{ "error": "schema_version_too_new", … }` |
+| `schema_version` **older** than the server expects | `400` (the malformed path — `{ "error": "malformed", … }`, no `record_index`) |
+| Other server error | `500`, body `{ "error": "internal" }` |
 
 Ingest is **all-or-nothing**: a single failed record rolls back the whole batch
 (one DuckDB transaction). `inserted`/`updated` aggregate across all five fact tables;

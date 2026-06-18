@@ -30,8 +30,10 @@ The operator runbook is [`ops/README.md`](ops/README.md).
   [`server/src/schema.rs`](server/src/schema.rs) (in-repo source of
   truth), [`web/lib/schema-version.ts`](web/lib/schema-version.ts) (the
   in-repo web mirror), and [`scripts/post-ingest.py`](../scripts/post-ingest.py)
-  (the monorepo CI ingest wrapper, which hardcodes it as a Python literal).
-  Bump in lockstep or every CI ingest run 400s. The server-side validation in
+  (the monorepo CI ingest wrapper, which hardcodes it as a Python literal); a
+  bump also coordinates with the monorepo producer wire shape in
+  `vortex-bench/src/v3.rs`. Bump in lockstep or every CI ingest run 400s/409s
+  (400 if the server is ahead, 409 if the emitter is ahead). The server-side validation in
   `records.rs` + `ingest.rs` and the echo in `/health` all consume the
   constant through `crate::schema`. The full versioned contract lives in
   [`CONTRACT.md`](CONTRACT.md).
