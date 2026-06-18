@@ -124,12 +124,14 @@ if [ "$force" = "0" ] && [ "$new_sha" = "$last_sha" ]; then
 fi
 
 # --- Path filter ---
-# Rebuild + restart only when commits in the range touch website code,
-# the workspace lockfile, or workspace Cargo manifests. Other changes
-# (e.g. vortex-array fixes) update the working tree but don't restart.
+# Rebuild + restart only when commits in the range touch the v3 server/migrator
+# code, the workspace lockfile, or workspace Cargo manifests. Other changes
+# (e.g. web/, docs/) update the working tree but don't restart. Paths are
+# repo-root-relative (this standalone repo's workspace is at the root; the old
+# monorepo `benchmarks-website/` prefix does not apply here).
 filter_paths=(
-    benchmarks-website/server
-    benchmarks-website/migrate
+    server
+    migrate
     Cargo.lock
     Cargo.toml
 )

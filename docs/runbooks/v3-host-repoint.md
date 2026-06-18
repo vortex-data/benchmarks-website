@@ -82,42 +82,58 @@ Leave all other values — `INGEST_BEARER_TOKEN`, `ADMIN_BEARER_TOKEN`, `VORTEX_
 `S3_BACKUP_PREFIX`, and the rest — exactly as they are. Only `REPO_DIR` and `DEPLOY_BRANCH` need to
 change for the re-point.
 
+After editing as root, confirm the file is still mode `0600` owned by `ec2-user` (a root editor can
+silently change ownership or mode, and the deploy timer's `EnvironmentFile=` read expects it):
+
+```bash
+sudo chown ec2-user:ec2-user /etc/vortex-bench.env && sudo chmod 0600 /etc/vortex-bench.env
+```
+
 ### Step 3 — Re-run install from the new checkout
 
-The ops scripts are at the repo root in this standalone repo. Run install from there:
+The ops scripts are at the repo root in this standalone repo. Run install from there, passing
+`REPO_DIR` explicitly — `install.sh` does not read `/etc/vortex-bench.env` at startup; it takes
+`REPO_DIR` from the environment (defaulting to `$HOME/benchmarks-website`):
 
 ```bash
 cd /home/ec2-user/benchmarks-website
-./ops/install.sh
+REPO_DIR=/home/ec2-user/benchmarks-website ./ops/install.sh
 ```
 
 > **Path note:** the correct path is `./ops/install.sh`, NOT `./benchmarks-website/ops/install.sh`.
 > The monorepo layout put the ops directory one level deeper; that subdirectory does not exist in
-> this standalone repo.
+> this standalone repo. (`install.sh` was updated for this standalone layout: its `ops_dir` is now
+> `${REPO_DIR}/ops` and its `REPO_DIR` default is `$HOME/benchmarks-website`.)
 
-`install.sh` is idempotent — it updates the systemd units to reference the new `REPO_DIR`, refreshes
-`/etc/sudoers.d/vortex-bench`, and reloads the daemon. Re-running it on an already-bootstrapped host
-is safe.
+`install.sh` is idempotent, and it does NOT rewrite the systemd unit files — they are static and run
+`/var/lib/vortex-bench/ops/deploy.sh`. What it does is atomically re-symlink `/var/lib/vortex-bench/ops`
+→ the new checkout's `ops/` directory, so the units' `ExecStart` resolves to scripts from the new
+repo; it also refreshes `/etc/sudoers.d/vortex-bench` and reloads the daemon. `REPO_DIR` itself is
+read at runtime from `/etc/vortex-bench.env`, not baked into the units.
 
-Verify the units are loaded with the new path:
+Verify the env file the service will read carries the new values, and that the ops symlink points at
+the new checkout:
 
 ```bash
-sudo systemctl cat vortex-bench-deploy.service | grep REPO_DIR
-# or check the env file is being read from the updated location:
-sudo systemctl show vortex-bench-deploy.service --property=EnvironmentFiles
+sudo grep -E '^(REPO_DIR|DEPLOY_BRANCH)=' /etc/vortex-bench.env
+readlink /var/lib/vortex-bench/ops      # should resolve under /home/ec2-user/benchmarks-website/ops
 ```
 
 ### Step 4 — Force a rebuild from the new source
 
-Kick the deploy service manually so the host builds the new-repo tip within ~60 seconds rather than
-waiting for the next timer fire. Two equivalent paths:
+Kick a rebuild manually so the host builds the new-repo tip within ~60 seconds rather than waiting
+for the next timer fire. **Prefer Option B for a re-point:** `force-rebuild.sh` drops a sentinel that
+bypasses both the last-deployed-SHA stamp and the path filter, guaranteeing a full rebuild from the
+new source. Option A (the normal deploy cycle) also rebuilds here — the stamp written by the old
+monorepo deploy points at a commit absent from the fresh clone, which `deploy.sh` treats as "must
+rebuild" — but Option B is unconditional and is the safer choice immediately after a re-point:
 
 ```bash
-# Option A: trigger the deploy service directly
-sudo systemctl start vortex-bench-deploy.service
-
-# Option B: use the force-rebuild helper (bypasses stamp and path filter)
+# Option B (recommended after a re-point): unconditional full rebuild
 ./ops/force-rebuild.sh
+
+# Option A (fallback): trigger the normal deploy cycle
+sudo systemctl start vortex-bench-deploy.service
 ```
 
 Follow the deploy log in real time:
@@ -149,14 +165,19 @@ curl -fsS http://127.0.0.1:3000/health
 Expected: HTTP 200 with a JSON body containing `"status": "ok"` (or similar) and a `"build_sha"`
 that matches a commit in `vortex-data/benchmarks-website` (not the old monorepo).
 
-Also confirm the deploy log shows the fetch came from the right remote:
+Also confirm the checkout's `origin` remote is this repo (deploy.sh fetches `origin/$DEPLOY_BRANCH`,
+so `origin` is what determines the source — a successful `git fetch --quiet` logs no line, so check
+the remote directly rather than grepping the deploy log):
 
 ```bash
-journalctl -u vortex-bench-deploy --since "5 minutes ago" | grep 'origin/develop'
+git -C /home/ec2-user/benchmarks-website remote get-url origin
+# expect: https://github.com/vortex-data/benchmarks-website.git
 ```
 
-The host is now tracking `vortex-data/benchmarks-website:develop`. The autopilot timer will continue
-polling on the 60-second cycle from the new repo from this point forward.
+The host is now tracking `vortex-data/benchmarks-website:develop`. With `deploy.sh`'s path filter now
+repo-root-relative (`server`, `migrate`, `Cargo.lock`, `Cargo.toml`), the autopilot timer will
+correctly rebuild on subsequent server/migrator commits, polling on the 60-second cycle from the new
+repo from this point forward.
 
 ---
 
@@ -186,13 +207,18 @@ cutover is complete.
 
 ---
 
-## Note on `ops/BOOTSTRAP.md` and `ops/install.sh`
+## Note on `ops/BOOTSTRAP.md`
 
-`ops/BOOTSTRAP.md` and `ops/install.sh` still contain monorepo-layout references
-(`vortex-data/vortex.git`, `~/vortex`, paths like `./benchmarks-website/ops/`). These files are
-being left as-is for now — v3 is temporary scaffolding and the full audit of those references is
-tracked as deferred cleanup in the project spine. Follow the standalone paths documented in **this
-runbook** where they differ from what `BOOTSTRAP.md` or `install.sh` describe. Specifically:
+This sub-phase updated the ops **scripts** for the standalone layout: `ops/deploy.sh`'s path filter is
+now repo-root-relative (`server`, `migrate`, `Cargo.lock`, `Cargo.toml`) so the autopilot rebuilds on
+the right changes, and `ops/install.sh` resolves `ops_dir` as `${REPO_DIR}/ops`, defaults `REPO_DIR`
+to `$HOME/benchmarks-website`, and prints the `benchmarks-website.git` remote hint.
+
+`ops/BOOTSTRAP.md` (the from-scratch install / disaster-recovery doc) still contains monorepo-layout
+references (`vortex-data/vortex.git`, `~/vortex`, `./benchmarks-website/ops/`). It is left as-is for
+now — v3 is temporary scaffolding and a full rewrite of that bootstrap doc is tracked as deferred
+cleanup in the project spine. When following `BOOTSTRAP.md` for a from-scratch install, substitute the
+standalone equivalents:
 
 - Clone target: `~/benchmarks-website` (not `~/vortex`)
 - Remote: `https://github.com/vortex-data/benchmarks-website.git` (not the monorepo)
