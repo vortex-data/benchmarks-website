@@ -105,11 +105,14 @@ REPO_DIR=/home/ec2-user/benchmarks-website ./ops/install.sh
 > this standalone repo. (`install.sh` was updated for this standalone layout: its `ops_dir` is now
 > `${REPO_DIR}/ops` and its `REPO_DIR` default is `$HOME/benchmarks-website`.)
 
-`install.sh` is idempotent, and it does NOT rewrite the systemd unit files — they are static and run
-`/var/lib/vortex-bench/ops/deploy.sh`. What it does is atomically re-symlink `/var/lib/vortex-bench/ops`
-→ the new checkout's `ops/` directory, so the units' `ExecStart` resolves to scripts from the new
-repo; it also refreshes `/etc/sudoers.d/vortex-bench` and reloads the daemon. `REPO_DIR` itself is
-read at runtime from `/etc/vortex-bench.env`, not baked into the units.
+`install.sh` is idempotent. It copies the systemd unit files from `${REPO_DIR}/ops/systemd/` into
+`/etc/systemd/system/` (overwriting any prior copy), atomically re-symlinks `/var/lib/vortex-bench/ops`
+→ the new checkout's `ops/` directory, refreshes `/etc/sudoers.d/vortex-bench`, and reloads the daemon.
+The units are **static** — they do not bake `REPO_DIR` into `ExecStart` (which runs
+`/var/lib/vortex-bench/ops/deploy.sh`, resolving through the ops symlink); `REPO_DIR` is read at
+runtime from `/etc/vortex-bench.env`. Re-running install.sh on an already-bootstrapped host is safe,
+but note it WILL overwrite any hand-edits to the installed unit files with the versions from the new
+checkout.
 
 Verify the env file the service will read carries the new values, and that the ops symlink points at
 the new checkout:
@@ -130,6 +133,7 @@ rebuild" — but Option B is unconditional and is the safer choice immediately a
 
 ```bash
 # Option B (recommended after a re-point): unconditional full rebuild
+# (run as ec2-user — it writes a sentinel under /var/lib/vortex-bench and calls sudo systemctl itself)
 ./ops/force-rebuild.sh
 
 # Option A (fallback): trigger the normal deploy cycle
@@ -190,10 +194,12 @@ The old `~/vortex` checkout is untouched by the steps above. To revert to the mo
    REPO_DIR=/home/ec2-user/vortex
    DEPLOY_BRANCH=develop
    ```
-2. Re-run install from the old checkout:
+2. Re-run install from the old checkout, passing `REPO_DIR` explicitly (install.sh does not read
+   `/etc/vortex-bench.env`; be explicit so a stray `REPO_DIR` exported while following the forward
+   steps can't redirect the rollback back at the standalone repo):
    ```bash
    cd /home/ec2-user/vortex/benchmarks-website
-   ./ops/install.sh
+   REPO_DIR=/home/ec2-user/vortex ./ops/install.sh
    ```
 3. Force a rebuild:
    ```bash
