@@ -309,4 +309,85 @@ of master-applied files.
 
 ---
 
-<!-- Section E will be appended by a subsequent runbook task. -->
+## E. Verify the setup
+
+Run these checks after completing Sections A–D. They exercise each integration path end-to-end and
+surface misconfiguration before production traffic is at risk. All three checks are safe to run at
+any time — none writes to production data or changes deployed infrastructure.
+
+### E.1 Vercel build (CLI auth + project link)
+
+This confirms that `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` are correctly wired and
+that the project resolves and builds from the `web/` root.
+
+```bash
+cd web && vercel pull --yes --environment=preview --token="$VERCEL_TOKEN" && vercel build --token="$VERCEL_TOKEN"
+```
+
+**Expected:** exits `0`. The `vercel pull` step pulls environment variables and the project link;
+`vercel build` produces an `.vercel/output/` artifact locally.
+
+**If non-zero:** the project link or the `VERCEL_*` variables are wrong. Check that
+`VERCEL_PROJECT_ID` matches the project created in Section A (not the monorepo's project ID), and
+that `VERCEL_TOKEN` has deploy scope on that project.
+
+### E.2 Schema-deploy OIDC → IAM → RDS dry run
+
+This confirms that the OIDC trust extension (Section D) works, the role ARN and RDS connection
+coordinates (Section C) are correct, and the `migrator` Postgres user can connect with
+`sslmode=verify-full`.
+
+Trigger `schema-deploy.yml` via `workflow_dispatch` with `dry_run: true`:
+
+- **GitHub Actions UI path:** Actions → `schema-deploy` → Run workflow → set `dry_run` = `true` →
+  Run workflow.
+- **CLI path:**
+  ```bash
+  gh workflow run schema-deploy.yml -f dry_run=true --repo vortex-data/benchmarks-website
+  ```
+
+**Expected:** the job assumes `GitHubBenchmarkSchemaRole`, opens a connection to RDS as `migrator`
+with `sslmode=verify-full`, and prints the current migration status. A `status`-drift exit (the
+workflow reports pending migrations but does not apply them) is normal and informational in dry-run
+mode — the workflow does not fail on drift, it reports. The job exits `0`.
+
+**If OIDC or connection failure:** check the trust extension in Section D (the
+`repo:vortex-data/benchmarks-website:*` entry must be present), the `GH_BENCH_SCHEMA_ROLE_ARN`
+variable value, and the `RDS_BENCH_*` connection coordinates. The job log will identify the failing
+step.
+
+> **Bootstrap prerequisite:** if this is the first run ever against this RDS instance, migrations
+> `002`, `004`, `005`, `006`, and `007` must have been applied by the RDS master user out-of-band
+> before this workflow can proceed (see Section D.5 and `migrations/README.md` § Bootstrap
+> ordering). A `PermissionError` in the job log means a `requires-superuser` migration has not been
+> pre-applied.
+
+### E.3 Keep-warm health-check (optional)
+
+Once `BENCH_SITE_BASE_URL` is set and at least one deploy has landed, `web-keep-warm.yml` pings
+`/api/health` on its schedule. To confirm it works immediately:
+
+```bash
+gh workflow run web-keep-warm.yml --repo vortex-data/benchmarks-website
+```
+
+**Expected:** the job GETs `$BENCH_SITE_BASE_URL/api/health` and receives HTTP `200`. A non-200 or
+connection error means the URL in `BENCH_SITE_BASE_URL` does not match the deployed project's
+domain (confirm against the domain noted in Section A, step 3).
+
+---
+
+## Rollback / cutover note
+
+This setup is fully additive:
+
+- **New Vercel project** — the monorepo's existing Vercel project is not touched. Its Git
+  integration, environment variables, and deployment history are unchanged.
+- **OIDC trust extension** — the IAM trust policy edit adds `benchmarks-website` as a subject; it
+  does not remove `repo:vortex-data/vortex:*`. The monorepo's ingest pipeline and any other OIDC
+  consumers continue to work without interruption.
+
+It is therefore safe to complete all steps in this runbook before the production DNS cutover. No
+traffic is moved by this runbook — DNS cutover is a separate, later effort (Phase 5). If anything
+goes wrong before cutover, removing the new Vercel project and reverting the trust-policy edit
+returns the system to its pre-runbook state with no impact on users.
