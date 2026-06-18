@@ -50,6 +50,22 @@ consolidated `phase-3` gauntlet over the full Phase-3 diff at the phase boundary
 phases keep the default per-sub-phase cadence; Phase 4 returns to per-sub-phase gauntlets given its
 deploy/secrets risk.)
 
+**PHASE-4 SOURCING CORRECTION (Class B plan-assumption, 2026-06-18).** The Phase-1 sweep + design
+spec (§ "CI to replicate", ~L107/L121) claimed the benchmarks-website Vercel deploy workflows
+`web-deploy.yml` + `web-keep-warm.yml` live on the monorepo `ct/bench-v4` branch to "adapt from".
+**VERIFIED FALSE** — neither exists anywhere in `vortex-data/vortex` (checked `origin/ct/bench-v4`
+tree + full git history; the only `web.yml` there is the unrelated vortex-web→Cloudflare explorer).
+The benchmarks-website v4 site currently deploys via Vercel's GIT INTEGRATION, not a committed
+workflow. **Resolution (NO architecture/scope change — decision (d) already settled "NEW Vercel
+project, git-integration off, CLI-keyed deploy"):** AUTHOR `web-deploy.yml` (Vercel CLI
+`pull`/`build`/`deploy --prebuilt`) and `web-keep-warm.yml` (cron curl) FRESH per the design spec's
+stated shapes; ADAPT `schema-deploy.yml` + bring in `scripts/migrate-schema.py` from the REAL sources
+at `origin/ct/bench-v4` (convert its SHA-pinned actions → floating `@vN` tags per the accepted
+floating-tags tradeoff). Reconcile `web-keep-warm.yml`'s purpose against the existing
+`web/vercel.json` `/api/health` cron (every 2 min) rather than blindly duplicating it. This is the
+Class-B finding for Phase 4 (within the 0–2/phase budget); no user gate needed — surfaced here for
+the audit trail.
+
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
 Current Position block below and resumes. Current state: **Phase 3 COMPLETE — `CONTRACT.md`
