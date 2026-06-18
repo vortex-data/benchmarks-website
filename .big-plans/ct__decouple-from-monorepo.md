@@ -52,12 +52,15 @@ deploy/secrets risk.)
 
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
-Current Position block below and resumes. Current state: **Phase 2 COMPLETE — both correctness
-workflows shipped (`rust-ci.yml`, `web-ci.yml`), consolidated `phase-3` gauntlet ACCEPTED (0
-must-fix), human gate = proceed (2026-06-17). Branch PUSHED to origin; CI CONFIRMED GREEN on HEAD
-`8376223` (rust-ci + web-ci both `success`, 2026-06-18) — closes the deferred Phase-2 `gh run list`
-exit criterion. NOW AT Phase 3 (Emitter→ingester contract) entry: sub-phase 3.1 (contract-doc),
-Step 2.1 (generate the JIT task-plan via `writing-plans`). No work in flight; clean seam.**
+Current Position block below and resumes. Current state: **Phase 3 COMPLETE — `CONTRACT.md`
+(versioned emitter→ingester contract) + the cross-anchor `schema-version` consistency check
+shipped; consolidated `phase-3` gauntlet ACCEPTED (cycles: 2, 0 must-fix at accept). Phase-3 gate
+first answered `abort` (2026-06-18T16:34:24Z), then RE-DECIDED `proceed` (2026-06-18T16:40:12Z) on
+re-invocation. NOW AT Phase 4 (Deploy + secrets/infra ownership) entry: sub-phase 4.1
+(deploy-workflows), Step 2.1 (generate the JIT task-plan via `writing-plans`). No work in flight;
+clean seam. Phase 4 has externalized side-effects — needs AWS + Vercel auth (each gated on user
+confirmation); Phase 4 returns to the DEFAULT per-sub-phase gauntlet cadence (no batched-review
+override).**
 
 **For the fresh conversation — review-granularity preference (user, 2026-06-17):** do NOT run a full
 multi-agent gauntlet for every small (~60 LoC) change. Batch related small changes and review them
@@ -190,12 +193,12 @@ generations are explicitly **future work**, not this project.
 ## Current Position
 
 ```yaml
-phase: "3: Emitter→ingester contract"   # current phase name (matches Phase Map)
+phase: "4: Deploy + secrets/infra ownership"   # current phase name (matches Phase Map)
 sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: aborted                # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
-last_gate: 2026-06-18T16:34:24Z   # ISO 8601 timestamp of the most recent human gate, or null
-phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-entry commit (Phase 3)
+status: implementing           # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+last_gate: 2026-06-18T16:40:12Z   # ISO 8601 timestamp of the most recent human gate, or null
+phase_entry_sha: null          # SHA of the phase-entry commit (Phase 4) — filled by commit 2 (plan: record phase_entry_sha for phase 4)
 ```
 
 ---
@@ -366,3 +369,4 @@ phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-e
 
 - **Gauntlet:** phase-3 / accepted (cycles: 2) — 3 lenses (spec/correctness/maint), 0 must-fix at accept. **Cycle 1 = reject**: 1 must-fix (CONTRACT.md HTTP matrix conflated serde `Malformed` (400, no `record_index`) with per-record `Record` (400, with index) — verified against `server/src/error.rs`) + 2 should-fix (AGENTS.md omitted `vortex-bench/src/v3.rs` from the SCHEMA_VERSION coupled sites; durable docs leaked the plan-internal "sub-phase 3.2" term) + 1 nit (AGENTS.md 400→400/409); all fixed in `0f374f4`. **Cycle 2 = accept** (fix-commit attention pass, `prior_fix_commit_sha=0f374f4`): 0 must-fix; corrected matrix verified body-shape-exact vs `error.rs`; 1 new should-fix DEFERRED (`server/src/ingest.rs:16` — see Deferred work).
 - **Human gate:** 2026-06-18T16:34:24Z — **abort** (user-requested). Phase 3 is complete + gauntlet-accepted; the user chose to stop at the boundary rather than proceed to Phase 4. Branch + spine intact, nothing merged/pushed.
+- **Human gate (re-decision):** 2026-06-18T16:40:12Z — **proceed** (user re-invoked `/spiral:big-plans` and re-decided the Phase-3 boundary gate from abort → proceed). Advancing to Phase 4 on the same branch per STACKING MODE (no per-phase merge). The deferred should-fix `server/src/ingest.rs:16` (stale module-doc HTTP matrix; runtime correct) was left DEFERRED per the proceed decision (no amend). Phase 4 entails AWS + Vercel auth for its externalized changes (each gated on user confirmation).
