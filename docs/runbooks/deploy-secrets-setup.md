@@ -32,8 +32,9 @@ Before starting, confirm you have:
 
 - **Vercel team/org access** with permission to create new projects (project-creator or owner role).
 - **GitHub repo admin** on `vortex-data/benchmarks-website` (to set Actions secrets and vars).
-- **AWS IAM permissions** on account `245040174862` to edit the OIDC roles' trust policies
-  (`iam:UpdateAssumeRolePolicy` on `GitHubBenchmarkSchemaRole` and `GitHubBenchmarkIngestRole`).
+- **AWS IAM permissions** on account `245040174862` to edit the OIDC trust policy
+  (`iam:UpdateAssumeRolePolicy` on `GitHubBenchmarkSchemaRole` — the only role this runbook modifies;
+  `GitHubBenchmarkIngestRole` is left unchanged in Phase 4, see Section D.4).
 - CLI tools authenticated:
   - `gh` — `gh auth status` shows `vortex-data/benchmarks-website` accessible.
   - `vercel` — `vercel whoami` shows the correct team/org.
@@ -96,6 +97,18 @@ will point production at the winning project at that time.
      (not secrets) in Section C.
    - **Do NOT commit `web/.vercel/`** — confirm it is listed in `.gitignore` (it should be; verify
      with `git check-ignore -v web/.vercel/project.json`).
+
+5. **Create a Vercel access token.**
+
+   The deploy workflow authenticates with a Vercel API token (this is separate from the project —
+   it is NOT produced by project creation). Create one and copy its value to your secret store; it
+   becomes the `VERCEL_TOKEN` GitHub secret in Section C.1.
+
+   - **Dashboard path:** Vercel → Account Settings (or Team Settings) → Tokens → Create Token →
+     give it a name (e.g. `benchmarks-website-deploy`), scope it to the team/project that owns the
+     new project, set an expiration per your policy → Create → copy the value (shown once).
+   - Treat the value as a secret: paste it straight into your secret store / the Section C.1 `gh
+     secret set` prompt. Never write it into a file.
 
 ---
 
@@ -166,7 +179,7 @@ are safe to expose in log output.
 
 | Name | Purpose |
 |---|---|
-| `VERCEL_TOKEN` | Vercel access token with deploy scope on the new project (created in Section A) |
+| `VERCEL_TOKEN` | Vercel access token with deploy scope on the new project (created in Section A, step 5) |
 
 Set via `gh` CLI — the operator pastes the value at the interactive prompt; the value is never
 echoed on the command line or stored in shell history:
@@ -317,31 +330,36 @@ of master-applied files.
 ## E. Verify the setup
 
 Run these checks after completing Sections A–D. They exercise each integration path end-to-end and
-surface misconfiguration before production traffic is at risk. All three checks are safe to run at
+surface misconfiguration before production traffic is at risk. All checks below are safe to run at
 any time — none writes to production data or changes deployed infrastructure.
 
 ### E.1 Vercel build (CLI auth + project link)
 
-This confirms that `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are correctly wired and that the project
-resolves and builds from the `web/` root. `VERCEL_TOKEN` is a GitHub Actions secret, not a local env
-var — export it from your secret store first, otherwise an empty `--token=""` silently falls back to
-your local `vercel login` session and tests the wrong credential:
+This mirrors what `web-deploy.yml` does: the workflow runs the Vercel CLI from the **repo root** with
+`VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` exported as env (the project's Root Directory = `web/` setting
+makes the CLI build `web/`). Reproduce that exact resolution path so the check actually exercises the
+GitHub **variables** you set in Section C — running `vercel` from inside `web/` would instead resolve
+the project from `web/.vercel/project.json` and could pass even when the Actions variables are wrong.
+`VERCEL_TOKEN` is a GitHub Actions secret, not a local env var — export it too, otherwise an empty
+`--token=""` silently falls back to your local `vercel login` session and tests the wrong credential:
 
 ```bash
-read -rs VERCEL_TOKEN && export VERCEL_TOKEN   # paste the token at the prompt; not echoed, clear from history after
-cd web && vercel pull --yes --environment=preview --token="$VERCEL_TOKEN" && vercel build --token="$VERCEL_TOKEN"
+export VERCEL_ORG_ID="<org id from Section A>"          # the value you set as the GitHub variable
+export VERCEL_PROJECT_ID="<project id from Section A>"
+read -rs VERCEL_TOKEN && export VERCEL_TOKEN            # paste at the prompt; never echoed, never recorded in shell history
+# Run from the REPO ROOT (not web/) to match the workflow's project-resolution path:
+vercel pull --yes --environment=preview --token="$VERCEL_TOKEN" && vercel build --token="$VERCEL_TOKEN"
+unset VERCEL_TOKEN                                      # drop the secret from the environment when done
 ```
 
-(Alternatively, if you are logged in locally via `vercel login`, omit both `--token` flags to use that
-session — the Actions-token credential path itself is exercised by the `web-deploy.yml` run in E.2's
-sibling workflow, not by this local check.)
+**Expected:** exits `0`. `vercel pull` resolves the project from the exported IDs and pulls its env;
+`vercel build` produces a `.vercel/output/` artifact.
 
-**Expected:** exits `0`. The `vercel pull` step pulls environment variables and the project link;
-`vercel build` produces an `.vercel/output/` artifact locally.
+**If non-zero:** the `VERCEL_*` values are wrong. Check that `VERCEL_PROJECT_ID` matches the project
+created in Section A (not the monorepo's project ID), and that `VERCEL_TOKEN` has deploy scope on it.
 
-**If non-zero:** the project link or the `VERCEL_*` variables are wrong. Check that
-`VERCEL_PROJECT_ID` matches the project created in Section A (not the monorepo's project ID), and
-that `VERCEL_TOKEN` has deploy scope on that project.
+> The full GitHub-Actions credential path (the `VERCEL_TOKEN` *secret* plus the variables, exactly as
+> the workflow consumes them) is validated end-to-end by **E.4** below, not by this local check.
 
 ### E.2 Schema-deploy OIDC → IAM → RDS dry run
 
@@ -386,6 +404,28 @@ gh workflow run web-keep-warm.yml --repo vortex-data/benchmarks-website
 **Expected:** the job GETs `$BENCH_SITE_BASE_URL/api/health` and receives HTTP `200`. A non-200 or
 connection error means the URL in `BENCH_SITE_BASE_URL` does not match the deployed project's
 domain (confirm against the domain noted in Section A, step 3).
+
+### E.4 Web deploy end-to-end (GitHub Actions credential path)
+
+This validates the full deploy pipeline as the workflow runs it — the `VERCEL_TOKEN` **secret** plus
+the `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` **variables**, consumed by `web-deploy.yml` from the repo
+root. (E.1's local build does not exercise the Actions secret/variable path.)
+
+Trigger a preview deploy via `workflow_dispatch`:
+
+- **GitHub Actions UI path:** Actions → `Web Deploy` → Run workflow → set `environment` = `preview` →
+  Run workflow.
+- **CLI path:**
+  ```bash
+  gh workflow run web-deploy.yml -f environment=preview --repo vortex-data/benchmarks-website
+  ```
+
+**Expected:** the job runs `vercel pull` / `vercel build` / `vercel deploy --prebuilt` and prints a
+preview deployment URL; the job exits `0`. Open the URL and confirm the site renders.
+
+**If it fails:** a Vercel auth error means the `VERCEL_TOKEN` secret is missing or wrong-scoped; a
+"project not found" error means `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` are wrong (Section C.2). The job
+log identifies the failing step.
 
 ---
 
