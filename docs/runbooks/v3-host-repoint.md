@@ -92,8 +92,9 @@ sudo chown ec2-user:ec2-user /etc/vortex-bench.env && sudo chmod 0600 /etc/vorte
 ### Step 3 — Re-run install from the new checkout
 
 The ops scripts are at the repo root in this standalone repo. Run install from there, passing
-`REPO_DIR` explicitly — `install.sh` does not read `/etc/vortex-bench.env` at startup; it takes
-`REPO_DIR` from the environment (defaulting to `$HOME/benchmarks-website`):
+`REPO_DIR` explicitly — `install.sh` does not use `/etc/vortex-bench.env` to resolve `REPO_DIR`; it
+takes `REPO_DIR` from the environment (defaulting to `$HOME/benchmarks-website`) and only sources the
+env file later, for token-presence detection:
 
 ```bash
 cd /home/ec2-user/benchmarks-website
@@ -133,7 +134,7 @@ rebuild" — but Option B is unconditional and is the safer choice immediately a
 
 ```bash
 # Option B (recommended after a re-point): unconditional full rebuild
-# (run as ec2-user — it writes a sentinel under /var/lib/vortex-bench and calls sudo systemctl itself)
+# (run as ec2-user — the sudoers fragment only authorizes ec2-user to passwordless-start the deploy service)
 ./ops/force-rebuild.sh
 
 # Option A (fallback): trigger the normal deploy cycle
@@ -143,21 +144,24 @@ sudo systemctl start vortex-bench-deploy.service
 Follow the deploy log in real time:
 
 ```bash
-journalctl -u vortex-bench-deploy -f
+journalctl -fu vortex-bench-deploy.service
 ```
 
-Expected output: lines showing `git fetch`, `building <sha>`, `swapped symlink`, `deploy ok: <sha>`.
-If the log shows errors (fetch failed, build failed) — do not proceed; see the rollback section.
+Expected output: lines showing `building <sha>`, `swapped symlink`, `deploy ok: <sha>`. (A successful
+`git fetch` is silent — `deploy.sh` runs it with `--quiet` and logs only on fetch FAILURE — so the
+absence of a fetch line is normal.) If the log shows errors (fetch failed, build failed) — do not
+proceed; see the rollback section.
 
 To confirm the running build matches the new repo (see `ops/README.md` § "Identifying the running
 build"):
 
 ```bash
-# All three should show the same commit, from the benchmarks-website remote:
+# The deployed-commit SHA appears in TWO places that must match each other:
 cat /var/lib/vortex-bench/last-deployed-sha
+curl -fsS http://127.0.0.1:3000/health | python3 -m json.tool   # the "build_sha" field must equal the stamp above
+# The binary symlink confirms a live build — its target is a timestamped filename
+# (vortex-bench-server.<ts>.<pid>), NOT a commit SHA, so don't compare it to the SHA above:
 readlink /var/lib/vortex-bench/bin/vortex-bench-server
-curl -fsS http://127.0.0.1:3000/health | python3 -m json.tool
-# health response includes "build_sha" — confirm it matches the above
 ```
 
 ### Step 5 — Verify the service is healthy on the new source
@@ -198,9 +202,13 @@ The old `~/vortex` checkout is untouched by the steps above. To revert to the mo
    `/etc/vortex-bench.env`; be explicit so a stray `REPO_DIR` exported while following the forward
    steps can't redirect the rollback back at the standalone repo):
    ```bash
+   ls /home/ec2-user/vortex/benchmarks-website/ops/install.sh   # confirm the old monorepo checkout is intact
    cd /home/ec2-user/vortex/benchmarks-website
    REPO_DIR=/home/ec2-user/vortex ./ops/install.sh
    ```
+   (This invokes the monorepo's OWN `install.sh` — which resolves `ops_dir` as
+   `${REPO_DIR}/benchmarks-website/ops`, the monorepo layout — not the standalone repo's `install.sh`.
+   Both honor the same `REPO_DIR` env interface; the explicit value avoids picking up a stray export.)
 3. Force a rebuild:
    ```bash
    sudo systemctl start vortex-bench-deploy.service
