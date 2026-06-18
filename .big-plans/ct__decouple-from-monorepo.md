@@ -193,8 +193,8 @@ generations are explicitly **future work**, not this project.
 phase: "3: Emitter→ingester contract"   # current phase name (matches Phase Map)
 sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: awaiting-human-gate    # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
-last_gate: 2026-06-17T19:10:20Z   # ISO 8601 timestamp of the most recent human gate, or null
+status: aborted                # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+last_gate: 2026-06-18T16:34:24Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-entry commit (Phase 3)
 ```
 
@@ -365,3 +365,4 @@ phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-e
 #### Phase 3 gate
 
 - **Gauntlet:** phase-3 / accepted (cycles: 2) — 3 lenses (spec/correctness/maint), 0 must-fix at accept. **Cycle 1 = reject**: 1 must-fix (CONTRACT.md HTTP matrix conflated serde `Malformed` (400, no `record_index`) with per-record `Record` (400, with index) — verified against `server/src/error.rs`) + 2 should-fix (AGENTS.md omitted `vortex-bench/src/v3.rs` from the SCHEMA_VERSION coupled sites; durable docs leaked the plan-internal "sub-phase 3.2" term) + 1 nit (AGENTS.md 400→400/409); all fixed in `0f374f4`. **Cycle 2 = accept** (fix-commit attention pass, `prior_fix_commit_sha=0f374f4`): 0 must-fix; corrected matrix verified body-shape-exact vs `error.rs`; 1 new should-fix DEFERRED (`server/src/ingest.rs:16` — see Deferred work).
+- **Human gate:** 2026-06-18T16:34:24Z — **abort** (user-requested). Phase 3 is complete + gauntlet-accepted; the user chose to stop at the boundary rather than proceed to Phase 4. Branch + spine intact, nothing merged/pushed.
