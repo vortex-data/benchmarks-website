@@ -212,7 +212,7 @@ generations are explicitly **future work**, not this project.
 phase: "4: Deploy + secrets/infra ownership"   # current phase name (matches Phase Map)
 sub_phase: "4.3 v3-host-repoint"   # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: reviewing              # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+status: fixing                 # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
 last_gate: 2026-06-18T16:40:12Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 32fa175682f4eb1870dc69c863ed3bd5429bc9ec   # SHA of the phase-entry commit (Phase 4)
 ```
