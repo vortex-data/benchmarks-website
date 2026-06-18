@@ -80,7 +80,7 @@ will point production at the winning project at that time.
 3. **Note the project's generated domains.**
 
    After creation, Vercel assigns a preview domain (e.g. `benchmarks-website-<hash>.vercel.app`) and
-   optionally a production domain. Record these for smoke-testing later (Section B, step 4).
+   optionally a production domain. Record these for the keep-warm smoke-test later (Section E.3).
 
 4. **Record `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`.**
 
@@ -121,14 +121,21 @@ team's secret store. **Never paste a value into this document.**
 | `BENCH_DB_POOL_MAX` | Max connections in the pg pool (default `8`; omit to use default) | Existing monorepo Vercel project env |
 | `BENCH_DB_IDLE_TIMEOUT_MS` | Pool idle-connection timeout in ms (default `300000` = 5 min; omit to use default) | Existing monorepo Vercel project env |
 | `BENCH_REVALIDATE_TOKEN` | Bearer token for `POST /api/revalidate` — must match the value the monorepo's emitter caller (`post-ingest.py`) sends | Existing monorepo Vercel project env; coordinate with the monorepo caller (see note below) |
-| `BENCH_DATA_TAG` | Next.js Data Cache tag flushed by `/api/revalidate` (constant value `bench-data`; set explicitly if you need to override the compiled-in default) | Hardcoded in `web/lib/data-cache.ts` as `'bench-data'`; only set this env var if you need to override it |
 
-> **`BENCH_REVALIDATE_TOKEN` coordination:** this token is shared between this repo's Vercel
-> deployment and the monorepo's `post-ingest.py` revalidation caller. When you copy the value to
-> the new project, the emitter's `POST /api/revalidate` call will authenticate against this new
-> project's endpoint automatically — no monorepo change needed. If you rotate the token, update it
-> in both places: this Vercel project and the monorepo's GitHub Actions secret that feeds
+> **`BENCH_REVALIDATE_TOKEN` coordination:** this token authenticates the monorepo's `post-ingest.py`
+> revalidation caller against `POST /api/revalidate`. Setting it on the new project only makes the new
+> project ACCEPT a matching bearer — it does **not** redirect the emitter's traffic here. The emitter
+> POSTs to whatever base URL it is configured with (currently the monorepo-owned project's domain), so
+> until that target URL is repointed at this project (at the Phase-5 DNS cutover, or by updating the
+> emitter's configured URL), revalidation traffic continues to hit the **old** project — that is
+> expected during the Phase-4 setup window. Use the SAME token value the monorepo caller sends; if you
+> rotate it, update it in both places: this Vercel project and the monorepo's secret that feeds
 > `post-ingest.py`.
+
+> **`BENCH_DATA_TAG` is not env-configurable:** the Next.js Data Cache tag is a compile-time constant
+> (`export const BENCH_DATA_TAG = 'bench-data'` in `web/lib/data-cache.ts`), imported directly by
+> `web/app/api/revalidate/route.ts` — nothing reads `process.env.BENCH_DATA_TAG`. Do **not** set it as
+> a Vercel env var (it would be a no-op). To change the tag, edit the source constant and redeploy.
 
 To set variables via CLI (repeat for each name; example for `BENCH_DB_HOST`):
 
@@ -141,14 +148,11 @@ vercel env add BENCH_DB_HOST preview
 
 Or use the Vercel Dashboard: Project → Settings → Environment Variables → Add.
 
-After setting all variables, trigger a test deployment to confirm the pool connects:
-
-```sh
-vercel deploy --prebuilt   # or push to the branch wired in web-deploy.yml
-```
-
-Check the function logs in the Vercel Dashboard for any `Missing required environment variable`
-errors from `web/lib/db.ts`. A successful `/api/health` response confirms the pool is up.
+After setting all variables, verify the deployment via **Section E**: `E.1` builds the project, and a
+production deploy (run `web-deploy.yml`, or the local `vercel pull && vercel build && vercel deploy
+--prebuilt` sequence — `deploy --prebuilt` requires the prior `build`) brings the pool up. Then check
+the Vercel function logs for any `Missing required environment variable` errors from `web/lib/db.ts`;
+a successful `/api/health` response confirms the pool is connected.
 
 ---
 
@@ -201,10 +205,10 @@ variable.
 
 | Variable | Consumed by |
 |---|---|
-| `VERCEL_TOKEN` (secret) | `web-deploy.yml`, `web-keep-warm.yml` |
-| `VERCEL_ORG_ID` | `web-deploy.yml`, `web-keep-warm.yml` |
-| `VERCEL_PROJECT_ID` | `web-deploy.yml`, `web-keep-warm.yml` |
-| `BENCH_SITE_BASE_URL` | `web-deploy.yml`, `web-keep-warm.yml` |
+| `VERCEL_TOKEN` (secret) | `web-deploy.yml` |
+| `VERCEL_ORG_ID` | `web-deploy.yml` |
+| `VERCEL_PROJECT_ID` | `web-deploy.yml` |
+| `BENCH_SITE_BASE_URL` | `web-keep-warm.yml` |
 | `GH_BENCH_SCHEMA_ROLE_ARN` | `schema-deploy.yml` |
 | `RDS_BENCH_REGION` | `schema-deploy.yml` |
 | `RDS_BENCH_INSTANCE_ENDPOINT` | `schema-deploy.yml` |
@@ -239,8 +243,9 @@ consumers continue to work during the cutover window.
 
 ### D.3 Required trust-policy `Condition` shape
 
-After the edit, the `Statement` entry for each role must look like this (the `sub` claim becomes a
-list):
+After the edit, the trust-policy `Statement` for `GitHubBenchmarkSchemaRole` must look like this (the
+`sub` claim becomes a list; apply the same shape to `GitHubBenchmarkIngestRole` only if/when it is
+later brought in scope — see D.4):
 
 ```json
 {
@@ -317,12 +322,19 @@ any time — none writes to production data or changes deployed infrastructure.
 
 ### E.1 Vercel build (CLI auth + project link)
 
-This confirms that `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` are correctly wired and
-that the project resolves and builds from the `web/` root.
+This confirms that `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are correctly wired and that the project
+resolves and builds from the `web/` root. `VERCEL_TOKEN` is a GitHub Actions secret, not a local env
+var — export it from your secret store first, otherwise an empty `--token=""` silently falls back to
+your local `vercel login` session and tests the wrong credential:
 
 ```bash
+read -rs VERCEL_TOKEN && export VERCEL_TOKEN   # paste the token at the prompt; not echoed, clear from history after
 cd web && vercel pull --yes --environment=preview --token="$VERCEL_TOKEN" && vercel build --token="$VERCEL_TOKEN"
 ```
+
+(Alternatively, if you are logged in locally via `vercel login`, omit both `--token` flags to use that
+session — the Actions-token credential path itself is exercised by the `web-deploy.yml` run in E.2's
+sibling workflow, not by this local check.)
 
 **Expected:** exits `0`. The `vercel pull` step pulls environment variables and the project link;
 `vercel build` produces an `.vercel/output/` artifact locally.
