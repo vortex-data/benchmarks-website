@@ -152,4 +152,161 @@ errors from `web/lib/db.ts`. A successful `/api/health` response confirms the po
 
 ---
 
-<!-- Sections C, D, E will be appended by subsequent runbook tasks. -->
+## C. Set this repo's GitHub Actions secrets and variables
+
+In `vortex-data/benchmarks-website` → Settings → Secrets and variables → Actions, configure one
+secret and seven variables. **Secrets** are masked in logs; **variables** are plain identifiers that
+are safe to expose in log output.
+
+### C.1 Secret
+
+| Name | Purpose |
+|---|---|
+| `VERCEL_TOKEN` | Vercel access token with deploy scope on the new project (created in Section A) |
+
+Set via `gh` CLI — the operator pastes the value at the interactive prompt; the value is never
+echoed on the command line or stored in shell history:
+
+```bash
+gh secret set VERCEL_TOKEN --repo vortex-data/benchmarks-website   # prompts for the value (not echoed)
+```
+
+**Dashboard path:** Settings → Secrets and variables → Actions → New repository secret → Name:
+`VERCEL_TOKEN`.
+
+### C.2 Variables
+
+Variables hold non-sensitive identifiers. Use `--body` to pass the value inline (safe because these
+are not secrets):
+
+```bash
+# Vercel project identifiers — copy from web/.vercel/project.json (recorded in Section A)
+gh variable set VERCEL_ORG_ID        --repo vortex-data/benchmarks-website --body "<org id from Section A>"
+gh variable set VERCEL_PROJECT_ID    --repo vortex-data/benchmarks-website --body "<project id from Section A>"
+gh variable set BENCH_SITE_BASE_URL  --repo vortex-data/benchmarks-website --body "https://<new project public URL>"
+
+# AWS OIDC role ARN for schema-deploy.yml
+gh variable set GH_BENCH_SCHEMA_ROLE_ARN  --repo vortex-data/benchmarks-website --body "arn:aws:iam::245040174862:role/GitHubBenchmarkSchemaRole"
+
+# RDS connection coordinates for schema-deploy.yml
+gh variable set RDS_BENCH_REGION            --repo vortex-data/benchmarks-website --body "<rds region>"
+gh variable set RDS_BENCH_INSTANCE_ENDPOINT --repo vortex-data/benchmarks-website --body "<rds instance endpoint host>"
+gh variable set RDS_BENCH_DB_NAME           --repo vortex-data/benchmarks-website --body "<rds db name>"
+```
+
+**Dashboard path:** Settings → Secrets and variables → Actions → Variables tab → New repository
+variable.
+
+**Workflow consumers:**
+
+| Variable | Consumed by |
+|---|---|
+| `VERCEL_TOKEN` (secret) | `web-deploy.yml`, `web-keep-warm.yml` |
+| `VERCEL_ORG_ID` | `web-deploy.yml`, `web-keep-warm.yml` |
+| `VERCEL_PROJECT_ID` | `web-deploy.yml`, `web-keep-warm.yml` |
+| `BENCH_SITE_BASE_URL` | `web-deploy.yml`, `web-keep-warm.yml` |
+| `GH_BENCH_SCHEMA_ROLE_ARN` | `schema-deploy.yml` |
+| `RDS_BENCH_REGION` | `schema-deploy.yml` |
+| `RDS_BENCH_INSTANCE_ENDPOINT` | `schema-deploy.yml` |
+| `RDS_BENCH_DB_NAME` | `schema-deploy.yml` |
+
+> **Note on `GH_BENCH_SCHEMA_ROLE_ARN`:** the literal ARN above uses account `245040174862` and role
+> name `GitHubBenchmarkSchemaRole`. Confirm these against the existing monorepo config (e.g.
+> `infra/README.md` or the monorepo's GitHub Actions variables) if there is any discrepancy before
+> setting.
+
+---
+
+## D. Extend the AWS IAM OIDC trust to this repo
+
+### D.1 Background
+
+The GitHub-OIDC roles in AWS account `245040174862` —
+
+- `GitHubBenchmarkSchemaRole` — assumed by `schema-deploy.yml` to apply incremental migrations via
+  the `migrator` Postgres role.
+- `GitHubBenchmarkIngestRole` — assumed by the v4 ingest pipeline (lives in the monorepo).
+
+Both roles trust the GitHub OIDC provider (`token.actions.githubusercontent.com`). Their current
+trust policy's `StringLike` condition allows only `repo:vortex-data/vortex:*` to assume them.
+
+### D.2 Goal
+
+Add `repo:vortex-data/benchmarks-website:*` to the trust condition so this repo's Actions workflows
+can assume `GitHubBenchmarkSchemaRole`. **Do NOT remove the existing monorepo entry** —
+`repo:vortex-data/vortex:*` must remain in place so the monorepo's ingest pipeline and any other
+consumers continue to work during the cutover window.
+
+### D.3 Required trust-policy `Condition` shape
+
+After the edit, the `Statement` entry for each role must look like this (the `sub` claim becomes a
+list):
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "Federated": "arn:aws:iam::245040174862:oidc-provider/token.actions.githubusercontent.com" },
+  "Action": "sts:AssumeRoleWithWebIdentity",
+  "Condition": {
+    "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+    "StringLike": {
+      "token.actions.githubusercontent.com:sub": [
+        "repo:vortex-data/vortex:*",
+        "repo:vortex-data/benchmarks-website:*"
+      ]
+    }
+  }
+}
+```
+
+### D.4 CLI path (idempotent — fetch, edit, put-back)
+
+Apply to `GitHubBenchmarkSchemaRole` (required for Phase 4):
+
+```bash
+# 1. Fetch the current trust document
+aws iam get-role --role-name GitHubBenchmarkSchemaRole \
+  --query 'Role.AssumeRolePolicyDocument' --output json > /tmp/schema-trust.json
+
+# 2. Edit /tmp/schema-trust.json:
+#    In the StringLike condition, change the "sub" value from a single string to the list shown in
+#    D.3 above. Keep the existing "repo:vortex-data/vortex:*" entry; add the new entry below it.
+
+# 3. Apply the updated policy
+aws iam update-assume-role-policy --role-name GitHubBenchmarkSchemaRole \
+  --policy-document file:///tmp/schema-trust.json
+```
+
+**Dashboard path (alternative):** AWS IAM console → Roles → `GitHubBenchmarkSchemaRole` → Trust
+relationships → Edit trust policy → update the `sub` value to the list above → Update policy.
+
+> **`GitHubBenchmarkIngestRole`:** apply the same edit only if this repo will also drive v4 ingest
+> from CI. That is out of scope for Phase 4 — `schema-deploy.yml` is the only OIDC consumer added
+> this phase. Leave `GitHubBenchmarkIngestRole` unchanged for now unless explicitly planned.
+
+### D.5 Bootstrap caveat — superuser migrations must precede OIDC role usage
+
+**Cross-reference: `migrations/README.md` § Bootstrap ordering.**
+
+The `migrator` Postgres role (assumed via OIDC by `schema-deploy.yml`) is `NOSUPERUSER`. Several
+migrations are marked `requires-superuser`:
+
+- `002`, `004`, `005`, `006`, `007`
+
+These migrations **must be applied by the RDS master user out-of-band** before `schema-deploy.yml`
+can run incremental applies. The runner's preflight check will refuse any `requires-superuser`-marked
+file that has not already been applied, raising a clear `PermissionError` and halting the workflow.
+
+**Action required before first `schema-deploy.yml` run:**
+
+1. Connect to RDS as the master user (see `migrations/README.md` for the connection procedure).
+2. Apply migrations `002`, `004`, `005`, `006`, and `007` manually.
+3. Only after those are recorded in the migration state table may `schema-deploy.yml` be triggered
+   for any subsequent migration.
+
+See `migrations/README.md` § Bootstrap ordering for the authoritative procedure and the full list
+of master-applied files.
+
+---
+
+<!-- Section E will be appended by a subsequent runbook task. -->
