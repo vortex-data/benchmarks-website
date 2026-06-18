@@ -215,8 +215,8 @@ generations are explicitly **future work**, not this project.
 phase: "4: Deploy + secrets/infra ownership"   # current phase name (matches Phase Map)
 sub_phase: null                # current sub-phase name (matches Phase Map); null between sub-phases
 task: null                     # ADVISORY-ONLY — SDD's internal task cursor; never routed on
-status: awaiting-human-gate    # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
-last_gate: 2026-06-18T16:40:12Z   # ISO 8601 timestamp of the most recent human gate, or null
+status: done                   # planning | implementing | reviewing | fixing | awaiting-human-gate | done | aborted
+last_gate: 2026-06-18T19:59:31Z   # ISO 8601 timestamp of the most recent human gate, or null
 phase_entry_sha: 32fa175682f4eb1870dc69c863ed3bd5429bc9ec   # SHA of the phase-entry commit (Phase 4)
 ```
 
@@ -431,3 +431,4 @@ phase_entry_sha: 32fa175682f4eb1870dc69c863ed3bd5429bc9ec   # SHA of the phase-e
 
 - **Gauntlet:** phase-4 / accepted (cycles: 1) — 4 lenses (spec/correctness/maint/arch), 0 must-fix. Should-fixes (v4-workflow + doc polish; none in v3 ops code) DEFERRED — see Carry-forward > Deferred work; surfaced at the gate for the user's amend-vs-defer decision. The arch a-5 "deploy.sh server pathspec matches server.js" finding was verified FALSE.
 - **Exit criteria:** `actionlint .github/workflows/*.yml` → 0 **PASS**; `test -f docs/runbooks/*.md` (runbook exists) **PASS**. `(cd web && vercel build --token=$VERCEL_TOKEN)` → 0 is the user-confirmed-at-gate live-infra sub-criterion (needs creds; per Phase Map "live cutovers user-confirmed at the gate").
+- **Human gate:** 2026-06-18T19:59:31Z — **proceed** (final phase). Project complete; advancing to wrap-up. STACKING MODE: no per-phase merges happened; wrap-up deletes the spine + ephemeral scaffolding, pushes the branch, and opens the SINGLE project PR (Phases 1–4) for the user to merge. The 6 phase-4 should-fixes stay deferred (see Carry-forward).
