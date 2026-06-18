@@ -317,9 +317,13 @@ file that has not already been applied, raising a clear `PermissionError` and ha
 **Action required before first `schema-deploy.yml` run:**
 
 1. Connect to RDS as the master user (see `migrations/README.md` for the connection procedure).
-2. Apply migrations `002`, `004`, `005`, `006`, and `007` manually.
-3. Only after those are recorded in the migration state table may `schema-deploy.yml` be triggered
-   for any subsequent migration.
+2. Run the **full bootstrap apply as master** — `migrate-schema.py apply` applies every migration
+   (`001`–`007`) in order: it creates the `migrator` role (`002`), grants it ledger access (`003`,
+   which `migrator` needs to read/write `_applied_migrations` from CI), and applies the other
+   `requires-superuser` files (`004`–`007`). Do NOT hand-apply only the marked subset — that would
+   leave `003` ungranted, and the later CI dry-run/apply could not read the ledger.
+3. Only after that full bootstrap apply is recorded may `schema-deploy.yml` be triggered for any
+   subsequent migration.
 
 See `migrations/README.md` § Bootstrap ordering for the authoritative procedure and the full list
 of master-applied files.
@@ -385,15 +389,15 @@ mode — the workflow does not fail on drift, it reports. The job exits `0`.
 variable value, and the `RDS_BENCH_*` connection coordinates. The job log will identify the failing
 step.
 
-> **Bootstrap note (dry-run vs apply):** this dry-run connects as the `migrator` role, so migration
-> `002` (which creates that role) must already be master-applied — otherwise the job fails at Postgres
-> connection time (`role "migrator" does not exist`), not at any preflight. Given the `migrator` role
-> exists, the `status` dry-run does NOT need the other `requires-superuser` migrations (`004`–`007`)
-> applied: it reports them as pending (drift) and still exits `0`, and it never raises
-> `PermissionError` (that preflight lives only on the `apply` path). The FIRST *non-dry* `apply`
-> requires ALL of `002`/`004`/`005`/`006`/`007` master-applied first, or it fails the
-> `requires-superuser` preflight with a `PermissionError`. See Section D.5 and `migrations/README.md`
-> § Bootstrap ordering.
+> **Bootstrap note (dry-run vs apply):** both the dry-run and the apply assume the master has already
+> run the full bootstrap apply (Section D.5). The dry-run connects as `migrator` and reads the
+> `_applied_migrations` ledger, so it needs the `migrator` role (`002`) and its ledger grant (`003`)
+> in place — without the bootstrap the job fails at connection or ledger-read time, not at a preflight.
+> The dry-run does NOT require the later `requires-superuser` migrations to be applied: it reports any
+> unapplied ones as pending (drift) and still exits `0`, and it never raises `PermissionError`.
+> `PermissionError` is the `requires-superuser` preflight and fires ONLY on the non-dry `apply` path
+> (when a marked migration is reached by the non-master `migrator` role). See Section D.5 and
+> `migrations/README.md` § Bootstrap ordering.
 
 ### E.3 Web deploy end-to-end (GitHub Actions credential path)
 
