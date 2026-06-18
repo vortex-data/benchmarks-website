@@ -40,14 +40,24 @@ naming) that already landed. The 2.1 cycle-1 gauntlet already ran once and its m
 addressed (SHA-pin reverted to floating tags per the accepted tradeoff above); 2.1's authoritative
 review is the consolidated Phase-2 gauntlet. (Other phases keep the default per-sub-phase cadence.)
 
+**PHASE-3 BATCHED REVIEW (decision, 2026-06-18).** Per the recorded review-granularity preference
+(user, 2026-06-17), Phase 3's deliverables are small (a `CONTRACT.md` doc + a schema-version
+consistency check across two in-repo anchors) and do not each warrant a full multi-agent gauntlet.
+For Phase 3 ONLY, the per-sub-phase gauntlet checkpoints (Step 2.3) for 3.1 (contract-doc) and 3.2
+(version-check) are REPLACED by lightweight checks during each sub-phase (SDD per-task spec/quality
+review + the phase exit-criteria commands — `test -f CONTRACT.md`, the consistency check), plus ONE
+consolidated `phase-3` gauntlet over the full Phase-3 diff at the phase boundary (Step 3.2). (Other
+phases keep the default per-sub-phase cadence; Phase 4 returns to per-sub-phase gauntlets given its
+deploy/secrets risk.)
+
 **Resume / handoff.** The spine is the durable contract. A fresh conversation takes over by
 re-invoking `/spiral:big-plans` on the `ct/decouple-from-monorepo` branch — Phase 0 reads the
 Current Position block below and resumes. Current state: **Phase 2 COMPLETE — both correctness
 workflows shipped (`rust-ci.yml`, `web-ci.yml`), consolidated `phase-3` gauntlet ACCEPTED (0
-must-fix), human gate = proceed (2026-06-17). Branch PUSHED to origin (first push; CI now running on
-GitHub — confirm both workflows go green to close the deferred Phase-2 `gh run list` exit criterion).
-NOW AT Phase 3 (Emitter→ingester contract) entry: sub-phase 3.1 (contract-doc), Step 2.1 (generate
-the JIT task-plan via `writing-plans`). No work in flight; clean seam.**
+must-fix), human gate = proceed (2026-06-17). Branch PUSHED to origin; CI CONFIRMED GREEN on HEAD
+`8376223` (rust-ci + web-ci both `success`, 2026-06-18) — closes the deferred Phase-2 `gh run list`
+exit criterion. NOW AT Phase 3 (Emitter→ingester contract) entry: sub-phase 3.1 (contract-doc),
+Step 2.1 (generate the JIT task-plan via `writing-plans`). No work in flight; clean seam.**
 
 **For the fresh conversation — review-granularity preference (user, 2026-06-17):** do NOT run a full
 multi-agent gauntlet for every small (~60 LoC) change. Batch related small changes and review them
@@ -332,5 +342,5 @@ phase_entry_sha: a6a1861f8233441c821ed3c08fa8904170eeb513   # SHA of the phase-e
 #### Phase 2 gate
 
 - **Gauntlet:** phase-3 (consolidated, spec+correctness+maint) / accepted (cycles: 1) — 0 must-fix across all three lenses; verdict accept. Should-fix/nits applied in `f24b356` (concurrency-comment correctness fix in both workflows, `rust-ci` `timeout-minutes: 45`, node/components comment clarity) plus spine fixes (floating-tags tradeoff broadened to web-ci's `setup-node`, u-3 double-fire-de-dup-claim correction, 2.2 task-plan pointer de-dangled). Sub-phase 2.1's earlier pr-2 cycle-1 is subsumed here per PHASE-2 BATCHED REVIEW.
-- **Exit criteria:** `actionlint .github/workflows/*.yml` → 0 **PASS**. The `gh run list … → success` criteria are **DEFERRED to the single final push** (STACKING MODE pushes nothing until Phase-4 wrap-up); all CI step-commands verified green locally (rust: Phase-1 green bar incl. fmt/clippy/build/nextest/doctest; web: format/lint/build + 301 tests). Known Class-B reconciliation surfaced at the gate.
+- **Exit criteria:** `actionlint .github/workflows/*.yml` → 0 **PASS**. The `gh run list … → success` criteria were deferred at the gate; the branch was pushed at the user's request immediately after, and both runs are now **CONFIRMED GREEN** on HEAD `8376223` (`rust-ci` + `web-ci` both `success`, observed 2026-06-18) — criterion SATISFIED. (All CI step-commands had also been verified green locally — rust: Phase-1 green bar incl. fmt/clippy/build/nextest/doctest; web: format/lint/build + 301 tests.)
 - **Human gate:** 2026-06-17T19:10:20Z — **proceed** (STACKING MODE: no per-phase merge; advance to Phase 3 on the same branch). At the user's request the branch was **PUSHED to origin** (first push — carries Phase 1 + Phase 2; triggers `rust-ci` + `web-ci` on GitHub, which confirms the deferred `gh run list → success` exit criterion once the runs land).
