@@ -325,14 +325,18 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
 // exercised end-to-end only by the Docker-gated collectGroups test; this no-DB
 // test pins the ordering directly so it stays verifiable without testcontainers.
 describe('compareGroupSortKey canonical group ordering (no DB)', () => {
-  it('places Random Access directly below PolarSignals Profiling', () => {
-    const sorted = ['Random Access', 'PolarSignals Profiling', 'Clickbench'].sort(
+  it('orders by the curated GROUP_ORDER (Random Access before PolarSignals Profiling)', () => {
+    const sorted = ['PolarSignals Profiling', 'Random Access', 'Clickbench', 'Compression'].sort(
       compareGroupSortKey,
     );
-    expect(sorted).toEqual(['Clickbench', 'PolarSignals Profiling', 'Random Access']);
-    // Adjacency: nothing sorts between PolarSignals Profiling and Random Access.
-    const polar = sorted.indexOf('PolarSignals Profiling');
-    expect(sorted[polar + 1]).toBe('Random Access');
+    expect(sorted).toEqual([
+      'Compression',
+      'Clickbench',
+      'Random Access',
+      'PolarSignals Profiling',
+    ]);
+    // Random Access now precedes PolarSignals Profiling (Stat/Pop Genetics sits between them).
+    expect(sorted.indexOf('Random Access')).toBeLessThan(sorted.indexOf('PolarSignals Profiling'));
   });
 
   it('sorts listed groups before unknown groups, unknowns alphabetically last', () => {

@@ -679,12 +679,12 @@ export interface GroupChartsResponse {
 }
 
 /**
- * Canonical group ordering, adapted from `dto.rs` `GROUP_ORDER`. Group names not
- * in this list sort after every listed name, alphabetically. `Random Access` is
- * intentionally pinned directly below `PolarSignals Profiling` (a product
- * ordering choice) rather than leading the page as it does in the Rust source;
- * `PolarSignals Profiling` is listed here so the two stay adjacent regardless of
- * the trailing alphabetical bucket.
+ * Canonical group ordering — the curated presentation order for the v4 site,
+ * matching how the benchmark groups are shown on the v2 site: compression
+ * throughput, compression size, Clickbench, the TPC-H ladder (NVMe/S3
+ * alternating across SF=1/10/100), TPC-DS, then Random Access, Statistical and
+ * Population Genetics, PolarSignals Profiling, and fineweb. Group names not in
+ * this list sort after every listed name, alphabetically (see [`groupSortKey`]).
  */
 const GROUP_ORDER: readonly string[] = [
   'Compression',
@@ -696,12 +696,11 @@ const GROUP_ORDER: readonly string[] = [
   'TPC-H (S3) (SF=10)',
   'TPC-H (NVMe) (SF=100)',
   'TPC-H (S3) (SF=100)',
-  'TPC-H (NVMe) (SF=1000)',
-  'TPC-H (S3) (SF=1000)',
   'TPC-DS (NVMe) (SF=1)',
-  'TPC-DS (NVMe) (SF=10)',
-  'PolarSignals Profiling',
   'Random Access',
+  'Statistical and Population Genetics',
+  'PolarSignals Profiling',
+  'fineweb [nvme]',
 ];
 
 /**
