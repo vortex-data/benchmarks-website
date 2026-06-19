@@ -124,3 +124,41 @@ A clean rehearsal against the real snapshot (PR-3.4) is the green light for the
 one-shot prod load (PR-5.0, at the Phase-5 cutover: operator runs the same two
 commands against the prod RDS DSN over `--ca-cert` verify-full TLS, with RDS PITR
 as the rollback path).
+
+## One-command backfill (`backfill-v4-prod.sh`)
+
+[`backfill-v4-prod.sh`](backfill-v4-prod.sh) automates the whole "REAL-snapshot
+rehearsal" plus the prod load as a single re-runnable operator script. It resolves
+the repo root itself, so run it from anywhere in a checkout -- but only in a quiet
+window with NO `develop` merges in flight, since the prod load `TRUNCATE`s and
+reloads all six tables in one transaction and a concurrent CI dual-write would race
+the `TRUNCATE`.
+
+```bash
+./migrate/backfill-v4-prod.sh          # guided run; pauses for a typed REPLACE confirm
+./migrate/backfill-v4-prod.sh --yes    # unattended (skip the confirm)
+./migrate/backfill-v4-prod.sh --help   # also: --reuse-snapshot, --skip-build, --skip-rehearsal
+```
+
+Each run, in order:
+
+1. acquires a FRESH v3 DuckDB from the v2 public bucket (`run --source public-s3
+   --allow-missing-file-sizes`);
+2. proves the exact prod operation against a throwaway local Postgres:16 -- the
+   self-gate: it applies the schema the loader actually needs and runs `load
+   --replace` + `verify`, aborting before prod on any failure; then
+3. after an interactive `REPLACE` confirm (`--yes` / `FORCE=1` to skip), runs the
+   atomic `load --replace` + `verify` against the prod RDS as the master `postgres`
+   over `--ca-cert` verify-full TLS, reading the master password from Secrets
+   Manager (never printed), and reports the before/after `/api/health` row counts.
+
+Two facts the script encodes that the manual steps above predate:
+
+- The loader's post-COPY denormalization writes `query_measurements.commit_timestamp`,
+  the column added by `006_read_path_perf.sql`, so the rehearsal schema is `001` +
+  `006` + `007`, not `001` alone (the `tests/postgres_e2e.rs` harness applies the
+  same three; the `002`-`005` role/grant migrations are RDS-IAM-only and skipped).
+- The three `-s3` file-sizes keys (`tpch-s3`, `tpch-s3-10`, `fineweb-s3`) return
+  `403` on the public bucket, so `--allow-missing-file-sizes` is required. They
+  dedupe against their `-nvme` twins by `measurement_id`, so the load stays
+  parity-preserving. The hard rollback remains RDS PITR.
