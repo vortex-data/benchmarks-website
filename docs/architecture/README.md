@@ -89,6 +89,8 @@ Remaining cutover steps (deliberately deferred — make v4 good first):
 
 1. **Emitter/ingest cutover** — point the monorepo emitters at the v4 ingest path
    (direct RDS write + `POST /api/revalidate`) instead of the v2 S3 dump / v3 server.
+   Full plan, spanning both repos, in
+   [`../runbooks/emitter-ingest-cutover.md`](../runbooks/emitter-ingest-cutover.md).
 2. **DNS cutover** — repoint `bench.vortex.dev` at v4 and make the Vercel
    deployment protection public.
 3. **Decommission v2 and v3** once nothing depends on them.

@@ -67,7 +67,8 @@ What remains (deliberately deferred — making v4 good before tearing anything d
 - [ ] **Emitter / ingest cutover.** Point the monorepo emitters at the v4 ingest
   path (direct RDS write + `POST /api/revalidate`) instead of the v2 S3 dump / v3
   server. Until then, v4 data is refreshed by re-running `vortex-bench-migrate`
-  (see [`migrate/README.md`](migrate/README.md)).
+  (see [`migrate/README.md`](migrate/README.md)). Full cross-repo plan:
+  [`docs/runbooks/emitter-ingest-cutover.md`](docs/runbooks/emitter-ingest-cutover.md).
 - [ ] **DNS cutover.** Repoint `bench.vortex.dev` at v4 and make the Vercel
   deployment protection public.
 - [ ] **Decommission v2 and v3** once nothing depends on them.
