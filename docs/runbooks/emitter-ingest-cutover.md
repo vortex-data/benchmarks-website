@@ -18,6 +18,24 @@ potentially on a different machine, with no memory of the prior sessions. It spa
 [`../architecture/data-pipeline.md`](../architecture/data-pipeline.md) and
 [`../../CONTRACT.md`](../../CONTRACT.md) first for the contract.
 
+## How to run this
+
+This runbook is structured to be executed as a **multi-phase project** — the
+recommended path is to invoke **`/spiral:big-plans`** in a fresh thread and point
+it at this file. It has everything big-plans needs to brainstorm a brief and a
+phase plan without re-discovering anything:
+
+- **§1** is the verified ground truth (AWS/RDS/role/var state as of 2026-06-19).
+- **§2 (A–D)** is the change list and maps cleanly to phases — note it spans two
+  repos (`infra` + GitHub config here; emitter code + workflows in
+  `vortex-data/vortex`), so the plan should be cross-repo.
+- **§3** is the machine/auth setup the executor needs first.
+- **§4** is the safe ordering (the v4 dual-write is additive/best-effort).
+- **§5** is the acceptance check for "done".
+
+You can also execute it by hand — it is written to be actionable without big-plans
+— but the phase boundaries above are the intended units of work.
+
 ---
 
 ## 0. The one thing to understand
