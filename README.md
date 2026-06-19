@@ -5,68 +5,88 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # benchmarks-website
 
-The website and data pipeline behind [`bench.vortex.dev`](https://bench.vortex.dev),
-the public home for Vortex benchmark results.
+The website and data pipeline behind the public home for Vortex benchmark
+results. Benchmark jobs in the [`vortex-data/vortex`](https://github.com/vortex-data/vortex)
+monorepo emit per-commit measurements; this repo stores them and renders them as
+time-series charts — one chart per `(benchmark, dataset, …)` dimension tuple,
+plotted across the Vortex commit history.
 
-> **Status: extraction in progress.**
-> This repository was split out of
-> [`vortex-data/vortex`](https://github.com/vortex-data/vortex) (from its
-> `benchmarks-website/` directory) so the site can iterate at its own pace
-> without the monorepo's CI. The code here is a faithful snapshot of that
-> directory, but the decoupling is not finished: standalone builds, CI, deploy
-> automation, secrets, and the benchmark *emitters* still live in (or point at)
-> the monorepo. Until that work lands, treat the monorepo copy as the
-> operational source of truth. See [Decoupling status](#decoupling-status).
+This repository is **standalone**. It was split out of the monorepo's
+`benchmarks-website/` directory and now carries its own Cargo workspace, CI,
+Vercel deploy, schema deploy, and secrets. The benchmark *emitters* still live in
+the monorepo (this repo owns the ingest *contract*, not the producers).
+
+## Generations
+
+The site has been rebuilt twice; all three generations live side-by-side here
+while the final cutover finishes.
+
+| Gen | Stack | Storage | Status |
+|---|---|---|---|
+| **v2** | Node `server.js` + Vite/React SPA (Cloudflare) | Static S3 dump, aggregated in memory at read time | **Live** at `bench.vortex.dev`. Retired after cutover. |
+| **v3** | `vortex-bench-server` — Rust `axum` + `maud` (EC2) | DuckDB file on local disk | Experimental; still an emit target. Decommissioned with the cutover. |
+| **v4** | `web/` — Next.js App Router (Vercel) | AWS RDS Postgres | **Live** at `benchmarks-website.vercel.app`; `develop` = production. The forward stack. |
+
+The full story — how data flows from an emitter to a chart, why there are three
+generations, and the design decisions behind the current stack — is in
+[**`docs/architecture/`**](docs/architecture/README.md). Read that first.
 
 ## Layout
 
 | Path | What it is |
 |------|------------|
-| `web/` | The current frontend and read service: a Next.js app deployed to Vercel, reading from the hosted Postgres. |
-| `server/` | `vortex-bench-server`, the Rust ingest/read server (`axum` + `maud`). |
-| `migrate/` | `vortex-bench-migrate`, the one-shot DuckDB-to-Postgres migration tool. |
-| `infra/` | AWS provisioning for the hosted Postgres and IAM. See [`infra/README.md`](infra/README.md). |
-| `ops/` | Operator runbook and scripts for the host-based deploy. See [`ops/README.md`](ops/README.md). |
-| `public/`, `src/`, `index.html`, `server.js`, `vite.config.js` | The legacy Node + React site (the original `bench.vortex.dev` stack). |
-
-The tree currently carries several generations of the site side by side (the
-legacy Node/React stack, the Rust + DuckDB stack, and the Next.js + Postgres
-stack). Pruning the superseded generations is part of the cleanup tracked below.
+| `web/` | **v4** frontend + read service: a Next.js app on Vercel reading the hosted Postgres. |
+| `server/` | **v3** `vortex-bench-server`, the Rust ingest/read server (`axum` + `maud`). |
+| `migrate/` | `vortex-bench-migrate`, the v2→v3→v4 migration tool. |
+| `migrations/` | The Postgres schema (SQL migrations + the `_applied_migrations` ledger). |
+| `infra/` | AWS provisioning for the hosted Postgres + IAM. |
+| `ops/` | Operator runbook and scripts for the legacy v3 host deploy. |
+| `scripts/` | `migrate-schema.py` (the schema-deploy runner) and golden fixtures. |
+| `public/`, `src/`, `index.html`, `server.js`, `vite.config.js` | The legacy **v2** Node + React site. |
 
 ## Documentation
 
-- [`AGENTS.md`](AGENTS.md) - conventions and footguns for working in this tree.
-- [`server/ARCHITECTURE.md`](server/ARCHITECTURE.md) - the read model and request flow.
-- [`ops/README.md`](ops/README.md) - the operator runbook.
-- [`infra/README.md`](infra/README.md) - hosted Postgres provisioning.
-- [`migrate/README.md`](migrate/README.md) - the migration tool.
+- [`docs/architecture/`](docs/architecture/README.md) — **the system architecture**
+  (data pipeline, read path, deploy/infra, design decisions). Start here.
+- [`CONTRACT.md`](CONTRACT.md) — the versioned emitter → ingester wire contract.
+- [`AGENTS.md`](AGENTS.md) — conventions and footguns for working in this tree.
+- [`server/ARCHITECTURE.md`](server/ARCHITECTURE.md) — the v3 read model and request flow.
+- [`docs/runbooks/`](docs/runbooks/) — operator runbooks (deploy + secrets setup).
+- [`infra/README.md`](infra/README.md) — hosted Postgres provisioning.
+- [`ops/README.md`](ops/README.md) — the legacy v3 host runbook.
+- [`migrate/README.md`](migrate/README.md) — the migration tool.
 
-Some links inside those documents still point at monorepo paths
-(`../.github/...`, `../vortex-bench/...`). Fixing those cross-repo references is
-part of the decoupling work below.
+## Status and remaining cutover
 
-## Decoupling status
+The decoupling from the monorepo is **complete**: standalone build, CI, Vercel
+deploy, OIDC schema deploy, and secrets all live here, and v4 is live in
+production serving the full benchmark history.
 
-The planning context and proposed phase plan for this work live in
-[`.big-plans/decoupling-brief.md`](.big-plans/decoupling-brief.md) (on the
-`ct/decouple-from-monorepo` branch).
+What remains (deliberately deferred — making v4 good before tearing anything down):
 
-Done:
+- [ ] **Emitter / ingest cutover.** Point the monorepo emitters at the v4 ingest
+  path (direct RDS write + `POST /api/revalidate`) instead of the v2 S3 dump / v3
+  server. Until then, v4 data is refreshed by re-running `vortex-bench-migrate`
+  (see [`migrate/README.md`](migrate/README.md)).
+- [ ] **DNS cutover.** Repoint `bench.vortex.dev` at v4 and make the Vercel
+  deployment protection public.
+- [ ] **Decommission v2 and v3** once nothing depends on them.
 
-- [x] Code extracted into this standalone repository.
+## Quick start
 
-Not yet (the decoupling project):
+```bash
+# v4 web app (needs BENCH_DB_* env for a real DB; see web/README or lib/db.ts):
+cd web && pnpm install && pnpm dev
 
-- [ ] **Standalone Rust build.** `server/` and `migrate/` were members of the
-  Vortex Cargo workspace; this repo needs a root workspace before `cargo build`
-  works here.
-- [ ] **CI.** Build, test, and the Vercel deploy currently run from monorepo
-  workflows.
-- [ ] **Secrets and environment.** Database credentials, the revalidate token,
-  and the site base URL live in the monorepo's GitHub and Vercel settings.
-- [ ] **Emitters.** The benchmark runs that produce results stay in the
-  monorepo's CI and post to this site's ingest endpoint. That contract has to
-  be kept in sync across both repositories.
+# v3 server (DuckDB) + Rust workspace tests:
+INGEST_BEARER_TOKEN=dev cargo run -p vortex-bench-server
+cargo nextest run -p vortex-bench-server -p vortex-bench-migrate
+
+# Build a fresh DuckDB from the v2 dump:
+cargo run -p vortex-bench-migrate -- run --output ./bench.duckdb
+```
+
+See [`AGENTS.md`](AGENTS.md) for the full local-dev and env-var contract.
 
 ## License
 
