@@ -47,7 +47,7 @@ generations, and the design decisions behind the current stack — is in
 ## Documentation
 
 - [`docs/architecture/`](docs/architecture/README.md) — **the system architecture**
-  (data pipeline, read path, deploy/infra, design decisions). Start here.
+  (data pipeline, read path, performance, deploy/infra, design decisions). Start here.
 - [`CONTRACT.md`](CONTRACT.md) — the versioned emitter → ingester wire contract.
 - [`AGENTS.md`](AGENTS.md) — conventions and footguns for working in this tree.
 - [`server/ARCHITECTURE.md`](server/ARCHITECTURE.md) — the v3 read model and request flow.

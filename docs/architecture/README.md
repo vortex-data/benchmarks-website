@@ -16,6 +16,7 @@ Start here, then follow the links below by topic.
 |---|---|
 | [`data-pipeline.md`](data-pipeline.md) | Emitters → ingest contract → storage → the `vortex-bench-migrate` tool (v2→v3→v4). The `measurement_id` invariant and `SCHEMA_VERSION`. |
 | [`read-path.md`](read-path.md) | How results become charts: the v4 Next.js read service (rendering, the two-layer cache, revalidation, slug/window encoding) and the v3 Rust read model it descends from. |
+| [`performance.md`](performance.md) | How a low-traffic serverless site stays fast: the cache layers + warmer cron, the recency-filter and RAM fixes, and the client's lazy hydration, opt-in full history, and fetch resilience. |
 | [`deploy-and-infra.md`](deploy-and-infra.md) | AWS (RDS Postgres, IAM roles, GitHub OIDC), the schema-deploy and web-deploy workflows, the SQL migrations, and the legacy v3 host ops. |
 | [`design-decisions.md`](design-decisions.md) | A consolidated, ADR-style log of the load-bearing decisions and *why* they were made. |
 

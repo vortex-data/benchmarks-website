@@ -124,6 +124,79 @@ slugs, and decoding validates the full shape, so they are not an injection
 surface.
 → `web/lib/slug.ts`.
 
+## Performance & client hydration
+
+The v4 stack is serverless and the site is low-traffic, so the costly case is
+the *first* request after an idle gap (function cold start + RDS connect + cold
+cache, measured ~7.8s). Most of the v4 performance work hides that from the one
+visitor who shows up. Full detail in [performance.md](performance.md).
+
+**Full history is opt-in, not speculatively warmed.**
+v3 auto-queued a background `?n=all` fetch for every chart on group open; on a
+22-chart group that queued tens of megabytes nobody asked for, contending with
+the windowed fetches a user actually waits on. v4 removed the auto-warmup: full
+history loads only on a deliberate per-chart signal — a window-chip click, a
+~600ms hover dwell, or a pan/zoom into the unloaded region.
+→ `web/components/Chart.tsx`, `web/lib/chart-format.ts`.
+
+**Bounded windows render on the full-length virtual x-axis.**
+Loading a small window and then "more" normally re-bases the Chart.js x-axis
+(jank). Instead every chart is built spanning `history.total_commits` slots from
+the start, with `null` placeholders for the unloaded prefix; the `?n=all` upgrade
+fills those nulls in place, so nothing re-bases and the visible window is
+preserved. This is what lets opt-in full history feel seamless.
+→ `web/lib/chart-format.ts` (`normalizeChartPayload`).
+
+**Lazy, top-first hydration on the landing page.**
+Opening a large group hydrated every card at once, and bottom-first (in island-
+registration order). Hydration is now gated by an `IntersectionObserver`
+(`rootMargin '300px 0px'`) and ordered `priority = -index`, so only the ~6
+visible charts hydrate on open and the top renders first.
+→ `web/components/Chart.tsx`.
+
+**Chart fetches are abortable, time-bounded, and retryable.**
+Each fetch carries an `AbortController` and a 30s timeout; closing/reopening a
+group cancels its in-flight fetches rather than piling load on the server, and a
+stall aborts instead of spinning forever. 30s is headroom over the ~7.8s cold
+first-hit, so a slow-but-live request is not falsely killed.
+→ `web/components/Chart.tsx`, `web/lib/chart-store.ts`.
+
+**Expand All loads one bundle per group, not N per-chart requests.**
+The viewport-gated per-chart path loads only what is on screen — the opposite of
+"load everything." A toggle-open instead fetches one `GET /api/group/{slug}?n=100`
+bundle into a session-lifetime payload cache, priming every chart with a single
+request; the `IntersectionObserver` still gates the CPU-bound Chart.js
+construction. The cache is per-session by design (a close/reopen costs zero
+fetches).
+→ `web/lib/chart-store.ts` (`ensureGroupBundle`).
+
+**A warmer cron keeps the function and its DB connections hot.**
+Caches handle repeat reads but not the first read after idle. A Vercel-native
+cron pings `/api/health` every 2 minutes (warming the function instance and
+several pooled connections), and the `pg` idle timeout is raised to 5 minutes so
+a pooled connection survives between pings. A Vercel-native cron is used (not
+only the GitHub `web-keep-warm` workflow) because GitHub scheduled workflows fire
+only from the default branch, whereas the Vercel cron also runs against the
+feature-branch production deploy.
+→ `web/vercel.json`, `web/lib/db.ts`.
+
+**`query_measurements` reads filter on the denormalized `commit_timestamp`.**
+The per-chart query used to read a chart's full ~18k-row history to return the
+latest ~665 rows, because recency was applied via a `commits` join after a full
+scan. Filtering directly on the denormalized, indexed `commit_timestamp` makes it
+a bounded index scan returning identical rows (≈5× per chart, ≈9× cold per
+group). Performance Insights showed the load was in-process — not I/O- or
+core-bound — so reading fewer rows, not more hardware, was the fix.
+→ `web/lib/queries.ts` (`queryMeasurementWindowFilter`), migrations `006`/`007`.
+
+**`?n=all` cold reads were fixed with RAM, not downsampling.**
+Loading a large group's full history cold is physical-I/O-bound: the ~6GB working
+set exceeded the cache on the original small instance. Upsizing to `db.r7g.large`
+(16GiB) lets the whole database sit in cache. Server-side downsampling was
+rejected for this goal — you must read every row before downsampling, so it does
+nothing for the cold read; it only shrinks the wire payload.
+→ `infra/provision.sh`.
+
 ## Infrastructure & deploy
 
 **OIDC, not long-lived AWS keys.**
@@ -162,6 +235,14 @@ RDS is publicly reachable on 5432; the access control is the IAM token signature
 (CI) or the `bench_read` password (Vercel), not a network ACL — which keeps
 serverless callers with dynamic egress IPs working without an allow-list.
 → `infra/provision.sh`.
+
+**The Vercel reader connects directly to the instance, not via the RDS Proxy.**
+A proxy was provisioned for connection pooling, but it is VPC-internal and
+unreachable from Vercel's off-VPC serverless functions (and from off-VPC CI
+runners). Reads therefore go to the public instance endpoint as `bench_read`,
+and the CDN + Data Cache absorb nearly all read load; a managed pooler is
+revisited only if connection exhaustion actually surfaces.
+→ `web/lib/db.ts`, `infra/provision.sh`.
 
 **Polling deploy for the v3 host.**
 The EC2 host pulls (timer → fetch → build → atomic symlink swap → health-check →
