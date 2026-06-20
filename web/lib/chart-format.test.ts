@@ -117,41 +117,47 @@ describe('small formatting helpers', () => {
 describe('seriesStyle', () => {
   const tag = (engine: string, format: string) => ({ engine, format });
 
-  it('makes the hero Vortex series the loudest: vivid green, distinct per engine, thickest', () => {
-    const dfv = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
-    const dkv = seriesStyle('duckdb:vortex', tag('duckdb', 'vortex'), 'light');
-    expect(dfv.color).toBe('#16a34a');
-    expect(dkv.color).toBe('#166534');
+  it('makes the hero Vortex series the loudest: red/green, distinct per engine, thickest', () => {
+    const dfv = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'));
+    const dkv = seriesStyle('duckdb:vortex', tag('duckdb', 'vortex'));
+    expect(dfv.color).toBe('#ef4444');
+    expect(dkv.color).toBe('#22c55e');
     expect(dfv.color).not.toBe(dkv.color);
-    const muted = seriesStyle('duckdb:lance', tag('duckdb', 'lance'), 'light');
+    const muted = seriesStyle('duckdb:lance', tag('duckdb', 'lance'));
     expect(dfv.width).toBeGreaterThan(muted.width);
   });
 
   it('puts Parquet a notch under Vortex (blue, thinner than the hero)', () => {
-    const vortex = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
-    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'), 'light');
-    expect(parquet.color).toBe('#2563eb');
+    const vortex = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'));
+    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'));
+    expect(parquet.color).toBe('#38bdf8');
     expect(parquet.width).toBeLessThan(vortex.width);
   });
 
-  it('mutes and thins everything outside the four hero series', () => {
-    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'), 'light');
-    const lance = seriesStyle('datafusion:lance', tag('datafusion', 'lance'), 'light');
-    const compact = seriesStyle('duckdb:vortex-compact', tag('duckdb', 'vortex-compact'), 'light');
-    expect(lance.width).toBeLessThan(parquet.width);
-    expect(compact.width).toBeLessThan(parquet.width);
-    // vortex-compact is NOT a hero: it never gets the vivid vortex green.
-    expect(compact.color).not.toBe('#16a34a');
+  it('distinguishes the two lance engines but keeps them thinner than Parquet', () => {
+    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'));
+    const dfLance = seriesStyle('datafusion:lance', tag('datafusion', 'lance'));
+    const dkLance = seriesStyle('duckdb:lance', tag('duckdb', 'lance'));
+    expect(dfLance.width).toBeLessThan(parquet.width);
+    expect(dfLance.color).not.toBe(dkLance.color);
   });
 
-  it('swaps the palette per theme so a series differs in light vs dark', () => {
-    const light = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
-    const dark = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'dark');
-    expect(light.color).not.toBe(dark.color);
+  it('gives vortex-compact its own purple, never the vortex red/green', () => {
+    const compact = seriesStyle('datafusion:vortex-compact', tag('datafusion', 'vortex-compact'));
+    expect(compact.color).toBe('#a855f7');
+    expect(compact.color).not.toBe('#ef4444');
+    expect(compact.color).not.toBe('#22c55e');
   });
 
   it('derives engine/format from the label when meta is absent', () => {
-    expect(seriesStyle('datafusion:vortex', undefined, 'light').color).toBe('#16a34a');
+    expect(seriesStyle('datafusion:vortex', undefined).color).toBe('#ef4444');
+  });
+
+  it('falls back to a muted color + width for an unknown series', () => {
+    const unknown = seriesStyle('datafusion:mystery', tag('datafusion', 'mystery'));
+    expect(unknown.color).toBe('#94a3b8');
+    const hero = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'));
+    expect(unknown.width).toBeLessThan(hero.width);
   });
 });
 

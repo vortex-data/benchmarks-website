@@ -120,21 +120,19 @@ export function assignStableColors(
 }
 
 // ---------------------------------------------------------------------------
-// Series styling by importance tier, theme-aware. Color carries the signal and
-// lines stay solid; the engine is a light/dark split of the format's color.
+// Series styling by importance, hand-tuned per `engine:format`. Color carries
+// the signal and lines stay solid. The palette is mode-independent: every color
+// is chosen to read on both the light (white) and dark card backgrounds, so the
+// chart never recolors when the page theme toggles.
 //
-// Tier 1 (loudest, thickest): the Vortex series on the real engines -- the hero
-// comparison. Vortex owns a vivid GREEN so it pops off the black/white chart
-// chrome (axes, gridlines, text). Tier 2: the Parquet series, a notch quieter
-// (blue/cyan). Tier 3: everything else (vortex-compact, lance, arrow, the duckdb
-// native format) is muted and thin so it recedes and never out-shouts the four
-// hero series. Each color is per-mode so neutral chrome never camouflages a line
-// (e.g. Parquet's blue lightens on dark); the active mode is resolved from the
-// page theme at the call site (see `components/Chart.tsx`).
+// The named series are the comparison that matters and get the loud, thick
+// lines: Vortex (bright red on datafusion, neon green on duckdb) and Parquet
+// (light / dark blue). A notch quieter: vortex-compact (purple) and the duckdb
+// native format (gold). Everything else is muted and thin so it recedes and
+// never out-shouts the comparison -- lance is neutral slate (it is the least
+// important and is hidden by default soon), and `datafusion:arrow` keeps an
+// orange where it is still worth reading.
 // ---------------------------------------------------------------------------
-
-/** Light or dark page theme; selects the per-mode palette. */
-export type ThemeMode = 'light' | 'dark';
 
 /** The resolved line style for one series: a color and a width (px). */
 export interface SeriesStyle {
@@ -143,48 +141,36 @@ export interface SeriesStyle {
 }
 
 /** Line widths per importance tier, reinforcing the color hierarchy. */
-const HERO_WIDTH = 2.4;
-const SECONDARY_WIDTH = 1.8;
-const MUTED_WIDTH = 1.2;
+const HERO_WIDTH = 2.6;
+const COMPACT_WIDTH = 1.9;
+const SECONDARY_WIDTH = 2.0;
+const NATIVE_WIDTH = 1.7;
+const MUTED_WIDTH = 1.4;
 
-/** Hero formats and their per-engine, per-mode colors. Vortex green is the
- * loudest tier; Parquet blue/cyan is the secondary tier. A series whose format
- * is not here, or whose engine is neither datafusion nor duckdb, is muted. */
-const HERO: Record<
-  ThemeMode,
-  Record<string, { datafusion: string; duckdb: string; width: number }>
-> = {
-  light: {
-    vortex: { datafusion: '#16a34a', duckdb: '#166534', width: HERO_WIDTH },
-    parquet: { datafusion: '#2563eb', duckdb: '#0e7490', width: SECONDARY_WIDTH },
-  },
-  dark: {
-    vortex: { datafusion: '#4ade80', duckdb: '#15803d', width: HERO_WIDTH },
-    parquet: { datafusion: '#60a5fa', duckdb: '#22d3ee', width: SECONDARY_WIDTH },
-  },
+/** The named series, keyed by `engine:format`, each with a hand-picked color and
+ * an importance-tier width. A series not listed here falls through to `MUTED`. */
+const KEYED: Record<string, SeriesStyle> = {
+  'datafusion:vortex': { color: '#ef4444', width: HERO_WIDTH }, // bright red
+  'duckdb:vortex': { color: '#22c55e', width: HERO_WIDTH }, // neon green
+  'datafusion:vortex-compact': { color: '#a855f7', width: COMPACT_WIDTH }, // bright purple
+  'duckdb:vortex-compact': { color: '#7e22ce', width: COMPACT_WIDTH }, // deep purple
+  'datafusion:parquet': { color: '#38bdf8', width: SECONDARY_WIDTH }, // light blue
+  'duckdb:parquet': { color: '#2563eb', width: SECONDARY_WIDTH }, // dark(er) blue
+  'duckdb:duckdb': { color: '#eab308', width: NATIVE_WIDTH }, // gold
 };
 
-/** Muted, desaturated colors for the non-hero formats, per mode -- distinct
- * enough to tell apart, quiet enough to recede behind the hero series. */
-const MUTED: Record<ThemeMode, Record<string, string>> = {
-  light: {
-    'vortex-compact': '#7c9a86',
-    lance: '#9c93b0',
-    arrow: '#b79a93',
-    'in-memory-arrow': '#b79a93',
-    duckdb: '#b3a875',
-  },
-  dark: {
-    'vortex-compact': '#5d7567',
-    lance: '#6f667e',
-    arrow: '#7d6760',
-    'in-memory-arrow': '#7d6760',
-    duckdb: '#7a7050',
-  },
+/** Muted colors for the non-named series, looked up by `engine:format` first
+ * (so the two lance engines stay distinguishable) then by bare format. */
+const MUTED: Record<string, string> = {
+  'datafusion:lance': '#94a3b8', // neutral slate
+  'duckdb:lance': '#475569', // darker slate
+  'datafusion:arrow': '#f97316', // orange
+  'in-memory-arrow': '#f97316', // orange
+  arrow: '#a8a29e', // warm stone gray (other engines)
 };
 
-/** The catch-all muted color for an unknown format, per mode. */
-const MUTED_FALLBACK: Record<ThemeMode, string> = { light: '#9aa1a9', dark: '#5f6671' };
+/** The catch-all muted color for an otherwise-unknown series. */
+const MUTED_FALLBACK = '#94a3b8';
 
 /** Resolve a series' `(engine, format)` from its meta, falling back to splitting
  * the `engine:format` label. */
@@ -199,22 +185,22 @@ function seriesDims(
 }
 
 /**
- * The line color and width for a series in the given theme `mode`. The four hero
- * series (Vortex / Parquet on datafusion + duckdb) get vivid, thicker lines;
- * everything else is muted and thin. Color carries the signal, so lines stay
- * solid and the hierarchy reads at a glance.
+ * The line color and width for a series. The named Vortex / Parquet series get
+ * vivid, thicker lines; everything else is muted and thin. Color carries the
+ * signal, so lines stay solid and the hierarchy reads at a glance. The palette
+ * is mode-independent -- each color reads on both the light and dark card.
  */
 export function seriesStyle(
   name: string,
   meta: { engine?: string; format?: string } | null | undefined,
-  mode: ThemeMode,
 ): SeriesStyle {
   const { engine, format } = seriesDims(name, meta);
-  const hero = format ? HERO[mode][format] : undefined;
-  if (hero && (engine === 'datafusion' || engine === 'duckdb')) {
-    return { color: engine === 'duckdb' ? hero.duckdb : hero.datafusion, width: hero.width };
+  const key = engine && format ? `${engine}:${format}` : name;
+  const keyed = KEYED[key];
+  if (keyed) {
+    return keyed;
   }
-  const color = (format && MUTED[mode][format]) || MUTED_FALLBACK[mode];
+  const color = MUTED[key] || (format ? MUTED[format] : undefined) || MUTED_FALLBACK;
   return { color, width: MUTED_WIDTH };
 }
 
