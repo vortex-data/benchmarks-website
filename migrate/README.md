@@ -152,6 +152,13 @@ Each run, in order:
    over `--ca-cert` verify-full TLS, reading the master password from Secrets
    Manager (never printed), and reports the before/after `/api/health` row counts.
 
+If a CI dual-write lands during the run, `verify` reports keys present in v4 but not
+the snapshot. The script treats a diff that is *exclusively* extra target rows (zero
+"Keys only in DuckDB source", zero "Value mismatches") as success -- the historical
+mirror is intact and v4 merely has newer data -- while any missing row or value
+mismatch stays a hard failure. The cleanest run still has no in-flight benchmark
+jobs, not just no new merges (an in-flight job keeps dual-writing for minutes).
+
 Two facts the script encodes that the manual steps above predate:
 
 - The loader's post-COPY denormalization writes `query_measurements.commit_timestamp`,
