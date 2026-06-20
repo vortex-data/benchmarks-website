@@ -15,11 +15,11 @@ import type {
 } from 'chart.js';
 
 import {
-  assignStableColors,
   CHART_FETCH_N,
   clampRangeWindow,
   collectAllValues,
-  colorFor,
+  colorForSeries,
+  commitDateLabel,
   decimateSeries,
   DEFAULT_VISIBLE,
   escapeHtml,
@@ -31,7 +31,6 @@ import {
   HOVER_PREFETCH_PRIORITY,
   IDENTITY_UNIT,
   INTERACTION_FULL_PRIORITY,
-  labelForCommit,
   LAZY_HYDRATION_ROOT_MARGIN,
   MAX_VISIBLE_POINTS,
   normalizeChartPayload,
@@ -117,10 +116,6 @@ interface CardState {
   /** Series labels the user has explicitly legend-toggled on this card. Once
    * set, the global/group filters no longer drive that label here. */
   overrides: Record<string, true>;
-  /** Stable per-series colors by label. Series are colored by first-seen order
-   * (see [`assignStableColors`]) so the `?n=all` upgrade surfacing older series
-   * never reshuffles the colors of series already on the chart. */
-  seriesColors: Map<string, string>;
   displayUnit: DisplayUnit;
   /** v3 also tracked `__bench_inline_trimmed`; it was write-only there and is
    * dropped here. `payload.history.complete` carries the same information. */
@@ -175,6 +170,11 @@ interface CardCallbacks {
   setConstructed: (on: boolean) => void;
 }
 
+/** Subtle, theme-neutral grid line color (slate-gray at low opacity), matching
+ * the v2 frontend's faint gridlines a reviewer preferred over the heavier
+ * Chart.js default. */
+const GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
+
 // ---------------------------------------------------------------------------
 // Crosshair plugin: draws a vertical line at the chart's active hover index.
 // An inline plugin is cheaper than chartjs-plugin-crosshair, which is overkill
@@ -220,22 +220,19 @@ function benchDatasets(chart: ChartJs): BenchDataset[] {
  * visible range. `rawData` holds a reference to the original payload so the
  * tooltip can show raw values regardless of LTTB.
  */
-function buildDatasets(
-  payload: NormalizedChartPayload,
-  colors: ReadonlyMap<string, string>,
-): BenchDataset[] {
+function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
   const raw = payload.series ?? {};
   const meta = payload.series_meta ?? {};
   const n = payload.commits.length;
   const global = getGlobalFilterSnapshot();
   return Object.keys(raw)
     .sort()
-    .map((name, i) => {
+    .map((name) => {
       const seriesMeta = meta[name] ?? {};
       const rawValues = Array.isArray(raw[name]) ? raw[name] : [];
-      // Stable color by label (see `assignStableColors`); `colorFor(i)` is only a
-      // fallback for a label the caller did not pre-register in `colors`.
-      const color = colors.get(name) ?? colorFor(i);
+      // Color by FORMAT (hue) + ENGINE (shade), identity-based so the `?n=all`
+      // reshape never reshuffles a series' color (see `colorForSeries`).
+      const color = colorForSeries(name, seriesMeta);
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the current
       // visible window with raw or LTTB-kept values. With `spanGaps: true` the
       // line connects across nulls, so a series with partial coverage still
@@ -415,7 +412,6 @@ class ChartController {
       payload: null,
       ui: { y: 'linear', scope: DEFAULT_VISIBLE },
       overrides: {},
-      seriesColors: new Map(),
       displayUnit: IDENTITY_UNIT,
       fullLoaded: false,
       initialFetchEntry: null,
@@ -790,20 +786,6 @@ class ChartController {
   }
 
   /**
-   * Fold this payload's series labels into the chart's stable color map
-   * (first-seen order) and return the map for [`buildDatasets`]. Run on every
-   * (re)build so the `?n=all` upgrade keeps every already-seen series on its
-   * original color and only assigns fresh palette slots to newly surfaced series.
-   */
-  private colorsFor(payload: NormalizedChartPayload): ReadonlyMap<string, string> {
-    this.state.seriesColors = assignStableColors(
-      this.state.seriesColors,
-      Object.keys(payload.series ?? {}),
-    );
-    return this.state.seriesColors;
-  }
-
-  /**
    * Construct the Chart.js instance when the payload is present and the
    * enclosing group (if any) is open. Loads Chart.js lazily on first need.
    * Idempotent across overlapping calls via the `constructing` latch.
@@ -855,8 +837,8 @@ class ChartController {
       // recomputed only when `replaceChartPayload` swaps in the wider window.
       state.displayUnit = pickDisplayUnit(payload.unit_kind, collectAllValues(payload));
 
-      const labels = payload.commits.map(labelForCommit);
-      const datasets = buildDatasets(payload, this.colorsFor(payload));
+      const labels = payload.commits.map(commitDateLabel);
+      const datasets = buildDatasets(payload);
       const range = visibleRange(labels.length, state.ui.scope);
       const legendPosition = window.matchMedia?.('(max-width: 768px)').matches ? 'top' : 'bottom';
 
@@ -918,6 +900,7 @@ class ChartController {
             y: {
               type: state.ui.y === 'log' ? 'logarithmic' : 'linear',
               beginAtZero: state.ui.y !== 'log',
+              grid: { color: GRID_COLOR },
               // The axis title reflects the locked display unit; empty for
               // dimensionless kinds so a "1.2x speedup" chart does not get an
               // arbitrary label.
@@ -929,6 +912,7 @@ class ChartController {
             x: {
               min: range.min,
               max: range.max,
+              grid: { color: GRID_COLOR },
               title: { display: false },
               // One tick per commit is unreadable on a 5000-commit history;
               // Chart.js picks a sensible subset.
@@ -1122,8 +1106,8 @@ class ChartController {
       yAxis.title.display = state.displayUnit.axisLabel !== '';
       yAxis.title.text = state.displayUnit.axisLabel;
     }
-    const newLabels = payload.commits.map(labelForCommit);
-    const newDatasets = buildDatasets(payload, this.colorsFor(payload));
+    const newLabels = payload.commits.map(commitDateLabel);
+    const newDatasets = buildDatasets(payload);
     // Honour any explicit legend toggles the user had made already.
     for (const ds of newDatasets) {
       if (ds.label && state.overrides[ds.label]) {

@@ -9,8 +9,11 @@ import {
   clampRangeWindow,
   collectAllValues,
   colorFor,
+  colorForSeries,
+  commitDateLabel,
   decimateSeries,
   escapeHtml,
+  FALLBACK_PALETTE,
   FETCH_TIMEOUT_MS,
   firstLine,
   formatDisplayValue,
@@ -112,6 +115,51 @@ describe('small formatting helpers', () => {
   });
 });
 
+describe('colorForSeries', () => {
+  it('reproduces the v2 palette exactly for known engine:format series', () => {
+    expect(colorForSeries('datafusion:vortex')).toBe('#19a508');
+    expect(colorForSeries('duckdb:vortex')).toBe('#0e5e04');
+    expect(colorForSeries('datafusion:parquet')).toBe('#ef7f1d');
+    // Same format, different engine → a different shade (not the same color).
+    expect(colorForSeries('datafusion:vortex')).not.toBe(colorForSeries('duckdb:vortex'));
+  });
+
+  it('keeps a Vortex series green via the format hue when the exact combo is unmapped', () => {
+    const c = colorForSeries('newengine:vortex', { engine: 'newengine', format: 'vortex' });
+    expect(c).toMatch(/^#[0-9a-f]{6}$/);
+    const r = Number.parseInt(c.slice(1, 3), 16);
+    const g = Number.parseInt(c.slice(3, 5), 16);
+    const b = Number.parseInt(c.slice(5, 7), 16);
+    // A shade of the vortex green base (#19a508): green channel dominates.
+    expect(g).toBeGreaterThan(r);
+    expect(g).toBeGreaterThan(b);
+  });
+
+  it('falls back to a stable hashed palette slot for an unknown format', () => {
+    const first = colorForSeries('mystery', { format: 'unknownfmt' });
+    expect([...FALLBACK_PALETTE] as string[]).toContain(first);
+    // Deterministic: same input → same color across calls.
+    expect(colorForSeries('mystery', { format: 'unknownfmt' })).toBe(first);
+  });
+});
+
+describe('commitDateLabel', () => {
+  it('formats a commit timestamp as MMM D, YYYY', () => {
+    expect(commitDateLabel(commit('abc'))).toBe('Jun 1, 2026');
+  });
+
+  it('derives the date from the ISO prefix so it is timezone-stable', () => {
+    expect(
+      commitDateLabel({ sha: 'x', timestamp: '2026-01-09T23:30:00Z', message: '', url: '' }),
+    ).toBe('Jan 9, 2026');
+  });
+
+  it('returns empty for virtual slots and malformed timestamps', () => {
+    expect(commitDateLabel(null)).toBe('');
+    expect(commitDateLabel({ sha: 'x', timestamp: '', message: '', url: '' })).toBe('');
+  });
+});
+
 describe('magnitudeReference', () => {
   it('takes the median of finite nonzero magnitudes', () => {
     expect(magnitudeReference([1, 3, 2])).toBe(2);
@@ -137,10 +185,11 @@ describe('pickDisplayUnit', () => {
     });
     expect(pickDisplayUnit('time_ns', [5e3])).toMatchObject({ multiplier: 1e-3, suffix: 'µs' });
     expect(pickDisplayUnit('time_ns', [5e6])).toMatchObject({ multiplier: 1e-6, suffix: 'ms' });
+    // ms is the ceiling: a slow (≥1s) benchmark stays in ms, never seconds.
     expect(pickDisplayUnit('time_ns', [5e9])).toMatchObject({
-      multiplier: 1e-9,
-      suffix: 's',
-      axisLabel: 'Time (s)',
+      multiplier: 1e-6,
+      suffix: 'ms',
+      axisLabel: 'Time (ms)',
     });
   });
 
@@ -176,7 +225,7 @@ describe('pickDisplayUnit', () => {
 describe('formatDisplayValue', () => {
   it('applies the locked multiplier, decimals, and suffix', () => {
     const unit = pickDisplayUnit('time_ns', [12e9]);
-    expect(formatDisplayValue(12e9, unit)).toBe('12.00 s');
+    expect(formatDisplayValue(12e9, unit)).toBe('12000.00 ms');
   });
 
   it('collapses missing values to an em dash', () => {

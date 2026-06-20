@@ -119,6 +119,118 @@ export function assignStableColors(
   return next;
 }
 
+// ---------------------------------------------------------------------------
+// Series colors by FORMAT (hue) and ENGINE (shade), ported from the v2 frontend
+// (`src/config.js` + `src/utils.js`). A series' FORMAT picks its color family
+// (Vortex green, Parquet orange, ...) and its ENGINE darkens that to a distinct
+// shade, so e.g. every Vortex series is some green regardless of engine. The
+// exact map reproduces the v2 per-(engine, format) shades for the known series;
+// an unknown format falls back to a stable hashed slot. This is identity-based
+// (not index-based), so colors are inherently stable across the `?n=all`
+// reshape -- `assignStableColors` is no longer needed for the chart.
+// ---------------------------------------------------------------------------
+
+/** Exact per-series colors keyed by the `engine:format` (or v2 `format-storage`)
+ * series label; reproduces the v2 `SERIES_COLOR_MAP`. */
+const SERIES_COLOR_MAP: Record<string, string> = {
+  'vortex-nvme': '#19a508',
+  'vortex-compact-nvme': '#15850a',
+  'parquet-nvme': '#ef7f1d',
+  'lance-nvme': '#3B82F6',
+  'datafusion:arrow': '#7a27b1',
+  'datafusion:in-memory-arrow': '#7a27b1',
+  'datafusion:parquet': '#ef7f1d',
+  'datafusion:vortex': '#19a508',
+  'datafusion:vortex-compact': '#15850a',
+  'datafusion:lance': '#2D936C',
+  'duckdb:parquet': '#985113',
+  'duckdb:vortex': '#0e5e04',
+  'duckdb:vortex-compact': '#0b4a03',
+  'duckdb:duckdb': '#87752e',
+  'vortex:lance': '#FF8787',
+};
+
+/** Base hue per format, so a series whose exact `engine:format` is not mapped
+ * still lands on its format's color family (Vortex green, Parquet orange, ...). */
+const FORMAT_HUE: Record<string, string> = {
+  vortex: '#19a508',
+  'vortex-compact': '#15850a',
+  parquet: '#ef7f1d',
+  lance: '#3B82F6',
+  arrow: '#7a27b1',
+  'in-memory-arrow': '#7a27b1',
+  duckdb: '#87752e',
+};
+
+/** Stable fallback palette for series with no known format (ported from v2). */
+export const FALLBACK_PALETTE = [
+  '#5971FD',
+  '#CEE562',
+  '#EEB3E1',
+  '#FF8C42',
+  '#B8336A',
+  '#726DA8',
+  '#2D936C',
+  '#E9B44C',
+] as const;
+
+/** v2's `simpleHash`: a small deterministic 32-bit string hash, so an unmapped
+ * series keeps the same fallback color across reloads. */
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+/** Multiply a `#rrggbb` color's channels by `factor`, clamped to a byte. */
+function scaleHex(hex: string, factor: number): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) {
+    return hex;
+  }
+  const n = Number.parseInt(m[1], 16);
+  const channel = (shift: number): string => {
+    const v = Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
+    return v.toString(16).padStart(2, '0');
+  };
+  return `#${channel(16)}${channel(8)}${channel(0)}`;
+}
+
+/** Darken a format's base hue into a per-engine shade so two engines of the same
+ * format stay distinguishable. No engine leaves the base hue unchanged. */
+function shadeForEngine(baseHex: string, engine: string | undefined): string {
+  if (!engine) {
+    return baseHex;
+  }
+  // Deterministic multiplier in {1.0, 0.85, 0.7, 0.55}, keyed by the engine name.
+  const factor = 1 - (simpleHash(engine) % 4) * 0.15;
+  return scaleHex(baseHex, factor);
+}
+
+/**
+ * The line color for a series: its FORMAT picks the hue and its ENGINE the
+ * shade. Known `engine:format` series reproduce the v2 palette exactly; an
+ * unknown `engine:format` whose FORMAT is known still lands on that format's
+ * hue (engine-shaded); a series with no known format falls back to a stable
+ * hashed palette slot.
+ */
+export function colorForSeries(
+  name: string,
+  meta?: { engine?: string; format?: string } | null,
+): string {
+  const exact = SERIES_COLOR_MAP[name];
+  if (exact) {
+    return exact;
+  }
+  const format = meta?.format;
+  if (format && FORMAT_HUE[format]) {
+    return shadeForEngine(FORMAT_HUE[format], meta?.engine ?? undefined);
+  }
+  return FALLBACK_PALETTE[simpleHash(name) % FALLBACK_PALETTE.length];
+}
+
 /** First 7 characters of a commit SHA. */
 export function shortSha(sha: unknown): string {
   return typeof sha === 'string' ? sha.slice(0, 7) : String(sha);
@@ -181,6 +293,42 @@ export function escapeHtml(s: unknown): string {
  * (not yet loaded) slot. */
 export function labelForCommit(commit: CommitPoint | null | undefined): string {
   return commit && commit.sha ? shortSha(commit.sha) : '';
+}
+
+const MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/**
+ * The x-axis label for one commit slot as a date, `MMM D, YYYY` (e.g.
+ * `Jun 19, 2026`), or `''` for a virtual (not yet loaded) slot. Derived from the
+ * ISO timestamp's `YYYY-MM-DD` prefix rather than `new Date(...)` so the label
+ * is timezone-stable (no off-by-one-day drift across runtimes), matching the v2
+ * frontend's dated x-axis that a reviewer found more readable than raw SHAs.
+ */
+export function commitDateLabel(commit: CommitPoint | null | undefined): string {
+  const ts = commit?.timestamp;
+  if (typeof ts !== 'string' || ts.length < 10) {
+    return '';
+  }
+  const [year, month, day] = ts.slice(0, 10).split('-');
+  const monthIdx = Number.parseInt(month, 10) - 1;
+  const dayNum = Number.parseInt(day, 10);
+  if (!(monthIdx >= 0 && monthIdx < 12) || !Number.isFinite(dayNum)) {
+    return '';
+  }
+  return `${MONTH_ABBR[monthIdx]} ${dayNum}, ${year}`;
 }
 
 /**
@@ -307,8 +455,10 @@ export function collectAllValues(payload: Pick<ChartResponse, 'series'> | null):
   return out;
 }
 
-/** Steps: ns to µs (1e3) to ms (1e6) to s (1e9), picked by the median's
- * magnitude so the y-axis tick numbers fit in 1-4 digits. */
+/** Steps: ns to µs (1e3) to ms (1e6), picked by the median's magnitude so the
+ * y-axis tick numbers fit in 1-4 digits. `ms` is the ceiling: a time axis never
+ * promotes to seconds, so charts stay comparable in one unit (the v2 frontend's
+ * fixed-ms axis, which a reviewer found more readable than auto-seconds). */
 function pickTimeUnit(ref: number | null): {
   multiplier: number;
   suffix: string;
@@ -320,10 +470,7 @@ function pickTimeUnit(ref: number | null): {
   if (ref < 1e6) {
     return { multiplier: 1e-3, suffix: 'µs', decimals: 2 };
   }
-  if (ref < 1e9) {
-    return { multiplier: 1e-6, suffix: 'ms', decimals: 2 };
-  }
-  return { multiplier: 1e-9, suffix: 's', decimals: 2 };
+  return { multiplier: 1e-6, suffix: 'ms', decimals: 2 };
 }
 
 /** Binary multiples to match how DuckDB and on-disk file sizes are typically
