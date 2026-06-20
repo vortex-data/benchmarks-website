@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { displaySeriesLabel } from '@/lib/chart-format';
 import { formatTimeNs } from '@/lib/format';
 import type { Summary } from '@/lib/summary';
 
@@ -34,8 +35,8 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={item.name}>
-                  {item.name}
+                <span className="score-series" title={displaySeriesLabel(item.name)}>
+                  {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">
                   <span className="score-value">{formatTimeNs(item.time)}</span>
@@ -118,8 +119,8 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={item.name}>
-                  {item.name}
+                <span className="score-series" title={displaySeriesLabel(item.name)}>
+                  {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">
                   <span className="score-value">{item.score.toFixed(2)}x</span>

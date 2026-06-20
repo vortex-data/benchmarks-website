@@ -11,6 +11,8 @@ import {
   colorFor,
   commitDateLabel,
   decimateSeries,
+  displayFormat,
+  displaySeriesLabel,
   escapeHtml,
   FETCH_TIMEOUT_MS,
   firstLine,
@@ -165,6 +167,24 @@ describe('seriesStyle', () => {
     expect(unknown.color).toBe('#94a3b8');
     const hero = seriesStyle('datafusion:vortex-file-compressed', tag('datafusion', 'vortex-file-compressed'));
     expect(unknown.width).toBeLessThan(hero.width);
+  });
+});
+
+describe('displayFormat / displaySeriesLabel', () => {
+  it('renames only vortex-file-compressed to vortex', () => {
+    expect(displayFormat('vortex-file-compressed')).toBe('vortex');
+    expect(displayFormat('vortex-compact')).toBe('vortex-compact');
+    expect(displayFormat('parquet')).toBe('parquet');
+  });
+
+  it('rewrites the vortex token in any colon-delimited label', () => {
+    expect(displaySeriesLabel('datafusion:vortex-file-compressed')).toBe('datafusion:vortex');
+    expect(displaySeriesLabel('duckdb:vortex-file-compressed')).toBe('duckdb:vortex');
+    // Compression-time labels are format:op, so the token leads.
+    expect(displaySeriesLabel('vortex-file-compressed:encode')).toBe('vortex:encode');
+    expect(displaySeriesLabel('vortex-file-compressed')).toBe('vortex');
+    // Untouched labels pass through.
+    expect(displaySeriesLabel('datafusion:parquet')).toBe('datafusion:parquet');
   });
 });
 

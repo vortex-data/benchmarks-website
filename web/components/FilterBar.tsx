@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { seedActiveFromAllowlist, type FilterUniverse } from '@/lib/chart-format';
+import { displayFormat, seedActiveFromAllowlist, type FilterUniverse } from '@/lib/chart-format';
 import {
   getGlobalFilterSnapshot,
   initGlobalFilter,
@@ -189,7 +189,7 @@ function FilterRow({
             aria-pressed={isActive}
             onClick={() => onChipClick(dim, value)}
           >
-            {value}
+            {displayFormat(value)}
           </button>
         );
       })}

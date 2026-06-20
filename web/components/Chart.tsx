@@ -38,6 +38,7 @@ import {
   pickDisplayUnit,
   predecessorValue,
   rangeTouchesUnloadedHistory,
+  displaySeriesLabel,
   seriesPassesFilter,
   seriesPassesGroupFilter,
   seriesStyle,
@@ -331,7 +332,7 @@ function externalTooltipHandler(state: CardState, host: HTMLDivElement | null) {
         (r) =>
           `<div class="tt-row">` +
           `<span class="tt-swatch" style="background:${r.color}"></span>` +
-          `<span class="tt-label">${escapeHtml(r.label)}</span>` +
+          `<span class="tt-label">${escapeHtml(displaySeriesLabel(r.label))}</span>` +
           `<span class="tt-value">${escapeHtml(formatDisplayValue(r.raw, displayUnit))}</span>` +
           r.deltaHtml +
           `</div>`,
@@ -922,6 +923,19 @@ class ChartController {
           plugins: {
             legend: {
               position: legendPosition,
+              // Rewrite only the displayed legend text (vortex-file-compressed ->
+              // vortex); `dataset.label` stays the real key the toggle/filter use.
+              labels: {
+                generateLabels: (ci) => {
+                  const items = Chart.defaults.plugins.legend.labels.generateLabels(ci);
+                  for (const item of items) {
+                    if (typeof item.text === 'string') {
+                      item.text = displaySeriesLabel(item.text);
+                    }
+                  }
+                  return items;
+                },
+              },
               // Wrap the default toggle to record the per-card override and
               // keep `dataset.hidden` in sync with the legend's visibility
               // flag; the filter passes write to `dataset.hidden`, so they

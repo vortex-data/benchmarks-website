@@ -212,6 +212,27 @@ export function seriesStyle(
   return (format && FORMAT[format]) || FALLBACK;
 }
 
+/**
+ * The user-facing display name for a format string. Vortex's on-disk format is
+ * stored as `vortex-file-compressed` everywhere in the data (series keys, filter
+ * allowlists, `series_meta`), but it is shown to users as plain `vortex`. This is
+ * a presentation-only rename: callers pass the real format to the data layer and
+ * route it through here ONLY when rendering. All other formats pass through.
+ */
+export function displayFormat(format: string): string {
+  return format === 'vortex-file-compressed' ? 'vortex' : format;
+}
+
+/**
+ * The display version of a colon-delimited series label (`engine:format` or the
+ * compression-time `format:op`), rewriting each segment via [`displayFormat`] so
+ * the `vortex-file-compressed` token reads `vortex` wherever it appears while the
+ * underlying label (the dataset/override/lookup key) stays unchanged.
+ */
+export function displaySeriesLabel(label: string): string {
+  return label.split(':').map(displayFormat).join(':');
+}
+
 /** First 7 characters of a commit SHA. */
 export function shortSha(sha: unknown): string {
   return typeof sha === 'string' ? sha.slice(0, 7) : String(sha);
