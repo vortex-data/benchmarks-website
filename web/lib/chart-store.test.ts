@@ -34,6 +34,17 @@ describe('global filter store', () => {
     expect(snap.active.formats).toEqual(['parquet', 'vortex']);
   });
 
+  it('hides lance by default but keeps it when a URL allowlist pins it', () => {
+    const universe = { engines: ['datafusion', 'duckdb'], formats: ['parquet', 'vortex', 'lance'] };
+    // No `?format=` allowlist: lance is excluded by default (it is far slower, so
+    // it buries the comparison); the rest of the format universe stays active.
+    initGlobalFilter(universe, [], []);
+    expect(getGlobalFilterSnapshot().active.formats).toEqual(['parquet', 'vortex']);
+    // An explicit allowlist is taken verbatim, so a URL can pin lance back on.
+    initGlobalFilter(universe, [], ['lance']);
+    expect(getGlobalFilterSnapshot().active.formats).toEqual(['lance']);
+  });
+
   it('seeds verbatim from a URL allowlist and toggles chips independently', () => {
     initGlobalFilter(UNIVERSE, ['duckdb'], []);
     expect(getGlobalFilterSnapshot().active.engines).toEqual(['duckdb']);

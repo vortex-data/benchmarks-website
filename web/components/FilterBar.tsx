@@ -5,7 +5,12 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { displayFormat, seedActiveFromAllowlist, type FilterUniverse } from '@/lib/chart-format';
+import {
+  displayFormat,
+  seedActiveFormats,
+  seedActiveFromAllowlist,
+  type FilterUniverse,
+} from '@/lib/chart-format';
 import {
   getGlobalFilterSnapshot,
   initGlobalFilter,
@@ -70,7 +75,7 @@ export function FilterBar({
     : seedActiveFromAllowlist(initialEngines, universe.engines);
   const activeFormats = seeded
     ? snapshot.active.formats
-    : seedActiveFromAllowlist(initialFormats, universe.formats);
+    : seedActiveFormats(initialFormats, universe.formats);
 
   // Close on outside click and on Escape, mirroring v3's document listeners.
   useEffect(() => {

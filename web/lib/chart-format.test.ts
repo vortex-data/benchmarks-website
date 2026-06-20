@@ -33,6 +33,7 @@ import {
   pickDisplayUnit,
   predecessorValue,
   rangeTouchesUnloadedHistory,
+  seedActiveFormats,
   seedActiveFromAllowlist,
   seriesOrder,
   seriesPassesFilter,
@@ -582,6 +583,16 @@ describe('filter helpers', () => {
     expect(seedActiveFromAllowlist([], universe.engines)).toEqual(['duckdb', 'datafusion']);
     // A non-empty allowlist is verbatim, even when stale against the universe.
     expect(seedActiveFromAllowlist(['gone'], universe.engines)).toEqual(['gone']);
+  });
+
+  it('seeds formats with lance hidden by default, but honors an explicit allowlist', () => {
+    const formats = ['vortex', 'parquet', 'lance'];
+    // No allowlist: lance is dropped from the default active set.
+    expect(seedActiveFormats([], formats)).toEqual(['vortex', 'parquet']);
+    // An explicit allowlist is verbatim, so a `?format=` URL can pin lance on.
+    expect(seedActiveFormats(['lance'], formats)).toEqual(['lance']);
+    // A universe without lance is unaffected.
+    expect(seedActiveFormats([], ['vortex', 'parquet'])).toEqual(['vortex', 'parquet']);
   });
 
   it('hides a series only when its own dimension is filtered', () => {

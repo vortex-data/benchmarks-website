@@ -989,6 +989,31 @@ export function seedActiveFromAllowlist(
 }
 
 /**
+ * Formats hidden by default — visible only when the user explicitly enables
+ * them (a format chip or the "all" reset) or pins them via a `?format=` URL.
+ * `lance` is excluded by default: its benchmarks run far slower than the other
+ * formats, so leaving it on dominates the y-axis and buries the comparison.
+ */
+export const DEFAULT_HIDDEN_FORMATS: readonly string[] = ['lance'];
+
+/**
+ * Seed the active FORMAT chips from a URL allowlist. An explicit allowlist is
+ * taken verbatim — so a `?format=` URL can pin a default-hidden format back on
+ * — while the no-filter default starts from the universe minus
+ * [`DEFAULT_HIDDEN_FORMATS`]. This is the format-aware counterpart of
+ * [`seedActiveFromAllowlist`], which the engine dimension still uses directly.
+ */
+export function seedActiveFormats(
+  allowlist: readonly string[],
+  universe: readonly string[],
+): string[] {
+  if (allowlist.length > 0) {
+    return [...allowlist];
+  }
+  return universe.filter((format) => !DEFAULT_HIDDEN_FORMATS.includes(format));
+}
+
+/**
  * Whether a series passes the global filter. A series is hidden when its
  * engine/format dimension is filtered (the active set is a strict subset of
  * the universe) AND its tag is not in the active set. Series without an engine

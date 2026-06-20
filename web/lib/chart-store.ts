@@ -24,6 +24,7 @@ import {
   FETCH_TIMEOUT_MS,
   FULL_HISTORY_CONCURRENCY,
   HYDRATION_CONCURRENCY,
+  seedActiveFormats,
   seedActiveFromAllowlist,
   type FilterUniverse,
   type GlobalFilterState,
@@ -321,7 +322,7 @@ export function initGlobalFilter(
     universe: { engines: [...universe.engines], formats: [...universe.formats] },
     active: {
       engines: seedActiveFromAllowlist(engineAllowlist, universe.engines),
-      formats: seedActiveFromAllowlist(formatAllowlist, universe.formats),
+      formats: seedActiveFormats(formatAllowlist, universe.formats),
     },
   };
   notifyGlobal();
