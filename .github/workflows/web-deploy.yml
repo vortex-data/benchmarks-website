@@ -44,6 +44,10 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  # Create the GitHub Deployment + statuses that render the native "View
+  # deployment" button and the in-progress spinner on the PR (Vercel's git
+  # integration is off here, so the workflow posts these itself).
+  deployments: write
 
 env:
   VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -65,6 +69,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Open a GitHub Deployment against the PR head commit BEFORE the build, so
+      # the PR shows an in-progress (spinner) status immediately and the later
+      # success/failure step flips it to the "View deployment" button. PR-only;
+      # `transient_environment` lets GitHub retire superseded previews. A failure
+      # to open the deployment must not fail the build, so the `id` is optional
+      # and every downstream step guards on it being non-empty.
+      - name: Start preview deployment
+        id: deployment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/deployments" --method POST --jq '.id' --input - <<EOF || true
+          {
+            "ref": "${HEAD_SHA}",
+            "environment": "preview",
+            "required_contexts": [],
+            "auto_merge": false,
+            "transient_environment": true,
+            "production_environment": false,
+            "description": "Vercel preview"
+          }
+          EOF
+          )"
+          echo "id=${id}" >> "$GITHUB_OUTPUT"
+          if [ -n "${id}" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses" --method POST --input - >/dev/null <<EOF || true
+          { "state": "in_progress", "description": "Building preview…" }
+          EOF
+          fi
 
       # `vercel build` below builds ON THE RUNNER (not Vercel's infra), so it shells out
       # to pnpm to install web/'s deps and run `next build`. Without pnpm + Node on PATH it
@@ -143,3 +180,41 @@ jobs:
           gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
             --body "Vercel preview for \`${COMMIT_SHA}\`: ${DEPLOY_URL}" \
             --edit-last --create-if-none
+
+      # Flip the deployment to success and attach the preview URL, which is what
+      # turns the in-progress status into the clickable "View deployment" button.
+      - name: Mark preview deployment ready
+        if: ${{ success() && github.event_name == 'pull_request' && steps.deployment.outputs.id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_ID: ${{ steps.deployment.outputs.id }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/deployments/${DEPLOY_ID}/statuses" --method POST --input - >/dev/null <<EOF
+          {
+            "state": "success",
+            "environment_url": "${DEPLOY_URL}",
+            "log_url": "${RUN_URL}",
+            "description": "Preview ready"
+          }
+          EOF
+
+      # If the build or deploy failed, mark the deployment failed so the PR shows
+      # a red status instead of a spinner that never resolves.
+      - name: Mark preview deployment failed
+        if: ${{ failure() && github.event_name == 'pull_request' && steps.deployment.outputs.id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_ID: ${{ steps.deployment.outputs.id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/deployments/${DEPLOY_ID}/statuses" --method POST --input - >/dev/null <<EOF
+          {
+            "state": "failure",
+            "log_url": "${RUN_URL}",
+            "description": "Preview deploy failed"
+          }
+          EOF
