@@ -120,115 +120,102 @@ export function assignStableColors(
 }
 
 // ---------------------------------------------------------------------------
-// Series colors by FORMAT (hue) and ENGINE (shade), ported from the v2 frontend
-// (`src/config.js` + `src/utils.js`). A series' FORMAT picks its color family
-// (Vortex green, Parquet orange, ...) and its ENGINE darkens that to a distinct
-// shade, so e.g. every Vortex series is some green regardless of engine. The
-// exact map reproduces the v2 per-(engine, format) shades for the known series;
-// an unknown format falls back to a stable hashed slot. This is identity-based
-// (not index-based), so colors are inherently stable across the `?n=all`
-// reshape -- `assignStableColors` is no longer needed for the chart.
+// Series styling by importance tier, theme-aware. Color carries the signal and
+// lines stay solid; the engine is a light/dark split of the format's color.
+//
+// Tier 1 (loudest, thickest): the Vortex series on the real engines -- the hero
+// comparison. Vortex owns a vivid GREEN so it pops off the black/white chart
+// chrome (axes, gridlines, text). Tier 2: the Parquet series, a notch quieter
+// (blue/cyan). Tier 3: everything else (vortex-compact, lance, arrow, the duckdb
+// native format) is muted and thin so it recedes and never out-shouts the four
+// hero series. Each color is per-mode so neutral chrome never camouflages a line
+// (e.g. Parquet's blue lightens on dark); the active mode is resolved from the
+// page theme at the call site (see `components/Chart.tsx`).
 // ---------------------------------------------------------------------------
 
-/** Exact per-series colors keyed by the `engine:format` (or v2 `format-storage`)
- * series label; reproduces the v2 `SERIES_COLOR_MAP`. */
-const SERIES_COLOR_MAP: Record<string, string> = {
-  'vortex-nvme': '#19a508',
-  'vortex-compact-nvme': '#15850a',
-  'parquet-nvme': '#ef7f1d',
-  'lance-nvme': '#3B82F6',
-  'datafusion:arrow': '#7a27b1',
-  'datafusion:in-memory-arrow': '#7a27b1',
-  'datafusion:parquet': '#ef7f1d',
-  'datafusion:vortex': '#19a508',
-  'datafusion:vortex-compact': '#15850a',
-  'datafusion:lance': '#2D936C',
-  'duckdb:parquet': '#985113',
-  'duckdb:vortex': '#0e5e04',
-  'duckdb:vortex-compact': '#0b4a03',
-  'duckdb:duckdb': '#87752e',
-  'vortex:lance': '#FF8787',
-};
+/** Light or dark page theme; selects the per-mode palette. */
+export type ThemeMode = 'light' | 'dark';
 
-/** Base hue per format, so a series whose exact `engine:format` is not mapped
- * still lands on its format's color family (Vortex green, Parquet orange, ...). */
-const FORMAT_HUE: Record<string, string> = {
-  vortex: '#19a508',
-  'vortex-compact': '#15850a',
-  parquet: '#ef7f1d',
-  lance: '#3B82F6',
-  arrow: '#7a27b1',
-  'in-memory-arrow': '#7a27b1',
-  duckdb: '#87752e',
-};
-
-/** Stable fallback palette for series with no known format (ported from v2). */
-export const FALLBACK_PALETTE = [
-  '#5971FD',
-  '#CEE562',
-  '#EEB3E1',
-  '#FF8C42',
-  '#B8336A',
-  '#726DA8',
-  '#2D936C',
-  '#E9B44C',
-] as const;
-
-/** v2's `simpleHash`: a small deterministic 32-bit string hash, so an unmapped
- * series keeps the same fallback color across reloads. */
-function simpleHash(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
+/** The resolved line style for one series: a color and a width (px). */
+export interface SeriesStyle {
+  color: string;
+  width: number;
 }
 
-/** Multiply a `#rrggbb` color's channels by `factor`, clamped to a byte. */
-function scaleHex(hex: string, factor: number): string {
-  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex);
-  if (!m) {
-    return hex;
-  }
-  const n = Number.parseInt(m[1], 16);
-  const channel = (shift: number): string => {
-    const v = Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
-    return v.toString(16).padStart(2, '0');
-  };
-  return `#${channel(16)}${channel(8)}${channel(0)}`;
-}
+/** Line widths per importance tier, reinforcing the color hierarchy. */
+const HERO_WIDTH = 2.4;
+const SECONDARY_WIDTH = 1.8;
+const MUTED_WIDTH = 1.2;
 
-/** Darken a format's base hue into a per-engine shade so two engines of the same
- * format stay distinguishable. No engine leaves the base hue unchanged. */
-function shadeForEngine(baseHex: string, engine: string | undefined): string {
-  if (!engine) {
-    return baseHex;
-  }
-  // Deterministic multiplier in {1.0, 0.85, 0.7, 0.55}, keyed by the engine name.
-  const factor = 1 - (simpleHash(engine) % 4) * 0.15;
-  return scaleHex(baseHex, factor);
+/** Hero formats and their per-engine, per-mode colors. Vortex green is the
+ * loudest tier; Parquet blue/cyan is the secondary tier. A series whose format
+ * is not here, or whose engine is neither datafusion nor duckdb, is muted. */
+const HERO: Record<
+  ThemeMode,
+  Record<string, { datafusion: string; duckdb: string; width: number }>
+> = {
+  light: {
+    vortex: { datafusion: '#16a34a', duckdb: '#166534', width: HERO_WIDTH },
+    parquet: { datafusion: '#2563eb', duckdb: '#0e7490', width: SECONDARY_WIDTH },
+  },
+  dark: {
+    vortex: { datafusion: '#4ade80', duckdb: '#15803d', width: HERO_WIDTH },
+    parquet: { datafusion: '#60a5fa', duckdb: '#22d3ee', width: SECONDARY_WIDTH },
+  },
+};
+
+/** Muted, desaturated colors for the non-hero formats, per mode -- distinct
+ * enough to tell apart, quiet enough to recede behind the hero series. */
+const MUTED: Record<ThemeMode, Record<string, string>> = {
+  light: {
+    'vortex-compact': '#7c9a86',
+    lance: '#9c93b0',
+    arrow: '#b79a93',
+    'in-memory-arrow': '#b79a93',
+    duckdb: '#b3a875',
+  },
+  dark: {
+    'vortex-compact': '#5d7567',
+    lance: '#6f667e',
+    arrow: '#7d6760',
+    'in-memory-arrow': '#7d6760',
+    duckdb: '#7a7050',
+  },
+};
+
+/** The catch-all muted color for an unknown format, per mode. */
+const MUTED_FALLBACK: Record<ThemeMode, string> = { light: '#9aa1a9', dark: '#5f6671' };
+
+/** Resolve a series' `(engine, format)` from its meta, falling back to splitting
+ * the `engine:format` label. */
+function seriesDims(
+  name: string,
+  meta: { engine?: string; format?: string } | null | undefined,
+): { engine: string | undefined; format: string | undefined } {
+  const colon = name.indexOf(':');
+  const engine = meta?.engine ?? (colon >= 0 ? name.slice(0, colon) : undefined);
+  const format = meta?.format ?? (colon >= 0 ? name.slice(colon + 1) : name);
+  return { engine, format };
 }
 
 /**
- * The line color for a series: its FORMAT picks the hue and its ENGINE the
- * shade. Known `engine:format` series reproduce the v2 palette exactly; an
- * unknown `engine:format` whose FORMAT is known still lands on that format's
- * hue (engine-shaded); a series with no known format falls back to a stable
- * hashed palette slot.
+ * The line color and width for a series in the given theme `mode`. The four hero
+ * series (Vortex / Parquet on datafusion + duckdb) get vivid, thicker lines;
+ * everything else is muted and thin. Color carries the signal, so lines stay
+ * solid and the hierarchy reads at a glance.
  */
-export function colorForSeries(
+export function seriesStyle(
   name: string,
-  meta?: { engine?: string; format?: string } | null,
-): string {
-  const exact = SERIES_COLOR_MAP[name];
-  if (exact) {
-    return exact;
+  meta: { engine?: string; format?: string } | null | undefined,
+  mode: ThemeMode,
+): SeriesStyle {
+  const { engine, format } = seriesDims(name, meta);
+  const hero = format ? HERO[mode][format] : undefined;
+  if (hero && (engine === 'datafusion' || engine === 'duckdb')) {
+    return { color: engine === 'duckdb' ? hero.duckdb : hero.datafusion, width: hero.width };
   }
-  const format = meta?.format;
-  if (format && FORMAT_HUE[format]) {
-    return shadeForEngine(FORMAT_HUE[format], meta?.engine ?? undefined);
-  }
-  return FALLBACK_PALETTE[simpleHash(name) % FALLBACK_PALETTE.length];
+  const color = (format && MUTED[mode][format]) || MUTED_FALLBACK[mode];
+  return { color, width: MUTED_WIDTH };
 }
 
 /** First 7 characters of a commit SHA. */

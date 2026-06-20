@@ -9,11 +9,9 @@ import {
   clampRangeWindow,
   collectAllValues,
   colorFor,
-  colorForSeries,
   commitDateLabel,
   decimateSeries,
   escapeHtml,
-  FALLBACK_PALETTE,
   FETCH_TIMEOUT_MS,
   firstLine,
   formatDisplayValue,
@@ -36,6 +34,7 @@ import {
   seedActiveFromAllowlist,
   seriesPassesFilter,
   seriesPassesGroupFilter,
+  seriesStyle,
   shortDate,
   shortSha,
   singleSearchParam,
@@ -115,31 +114,44 @@ describe('small formatting helpers', () => {
   });
 });
 
-describe('colorForSeries', () => {
-  it('reproduces the v2 palette exactly for known engine:format series', () => {
-    expect(colorForSeries('datafusion:vortex')).toBe('#19a508');
-    expect(colorForSeries('duckdb:vortex')).toBe('#0e5e04');
-    expect(colorForSeries('datafusion:parquet')).toBe('#ef7f1d');
-    // Same format, different engine → a different shade (not the same color).
-    expect(colorForSeries('datafusion:vortex')).not.toBe(colorForSeries('duckdb:vortex'));
+describe('seriesStyle', () => {
+  const tag = (engine: string, format: string) => ({ engine, format });
+
+  it('makes the hero Vortex series the loudest: vivid green, distinct per engine, thickest', () => {
+    const dfv = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
+    const dkv = seriesStyle('duckdb:vortex', tag('duckdb', 'vortex'), 'light');
+    expect(dfv.color).toBe('#16a34a');
+    expect(dkv.color).toBe('#166534');
+    expect(dfv.color).not.toBe(dkv.color);
+    const muted = seriesStyle('duckdb:lance', tag('duckdb', 'lance'), 'light');
+    expect(dfv.width).toBeGreaterThan(muted.width);
   });
 
-  it('keeps a Vortex series green via the format hue when the exact combo is unmapped', () => {
-    const c = colorForSeries('newengine:vortex', { engine: 'newengine', format: 'vortex' });
-    expect(c).toMatch(/^#[0-9a-f]{6}$/);
-    const r = Number.parseInt(c.slice(1, 3), 16);
-    const g = Number.parseInt(c.slice(3, 5), 16);
-    const b = Number.parseInt(c.slice(5, 7), 16);
-    // A shade of the vortex green base (#19a508): green channel dominates.
-    expect(g).toBeGreaterThan(r);
-    expect(g).toBeGreaterThan(b);
+  it('puts Parquet a notch under Vortex (blue, thinner than the hero)', () => {
+    const vortex = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
+    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'), 'light');
+    expect(parquet.color).toBe('#2563eb');
+    expect(parquet.width).toBeLessThan(vortex.width);
   });
 
-  it('falls back to a stable hashed palette slot for an unknown format', () => {
-    const first = colorForSeries('mystery', { format: 'unknownfmt' });
-    expect([...FALLBACK_PALETTE] as string[]).toContain(first);
-    // Deterministic: same input → same color across calls.
-    expect(colorForSeries('mystery', { format: 'unknownfmt' })).toBe(first);
+  it('mutes and thins everything outside the four hero series', () => {
+    const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'), 'light');
+    const lance = seriesStyle('datafusion:lance', tag('datafusion', 'lance'), 'light');
+    const compact = seriesStyle('duckdb:vortex-compact', tag('duckdb', 'vortex-compact'), 'light');
+    expect(lance.width).toBeLessThan(parquet.width);
+    expect(compact.width).toBeLessThan(parquet.width);
+    // vortex-compact is NOT a hero: it never gets the vivid vortex green.
+    expect(compact.color).not.toBe('#16a34a');
+  });
+
+  it('swaps the palette per theme so a series differs in light vs dark', () => {
+    const light = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'light');
+    const dark = seriesStyle('datafusion:vortex', tag('datafusion', 'vortex'), 'dark');
+    expect(light.color).not.toBe(dark.color);
+  });
+
+  it('derives engine/format from the label when meta is absent', () => {
+    expect(seriesStyle('datafusion:vortex', undefined, 'light').color).toBe('#16a34a');
   });
 });
 

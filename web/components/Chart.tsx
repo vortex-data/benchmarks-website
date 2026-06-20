@@ -18,7 +18,6 @@ import {
   CHART_FETCH_N,
   clampRangeWindow,
   collectAllValues,
-  colorForSeries,
   commitDateLabel,
   decimateSeries,
   DEFAULT_VISIBLE,
@@ -41,6 +40,7 @@ import {
   rangeTouchesUnloadedHistory,
   seriesPassesFilter,
   seriesPassesGroupFilter,
+  seriesStyle,
   shortDate,
   shortSha,
   throttle,
@@ -49,6 +49,7 @@ import {
   ZOOM_THROTTLE_MS,
   type DisplayUnit,
   type NormalizedChartPayload,
+  type ThemeMode,
 } from '@/lib/chart-format';
 import { loadChartJs } from '@/lib/chart-js';
 import {
@@ -175,6 +176,22 @@ interface CardCallbacks {
  * Chart.js default. */
 const GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 
+/** The resolved light/dark theme for coloring: the explicit `data-theme` override
+ * if set, else the system `prefers-color-scheme`. Read fresh each (re)build and on
+ * a theme change so series colors track the page theme. */
+function currentMode(): ThemeMode {
+  if (typeof document !== 'undefined') {
+    const attr = document.documentElement.getAttribute('data-theme');
+    if (attr === 'light' || attr === 'dark') {
+      return attr;
+    }
+  }
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
 // ---------------------------------------------------------------------------
 // Crosshair plugin: draws a vertical line at the chart's active hover index.
 // An inline plugin is cheaper than chartjs-plugin-crosshair, which is overkill
@@ -220,7 +237,7 @@ function benchDatasets(chart: ChartJs): BenchDataset[] {
  * visible range. `rawData` holds a reference to the original payload so the
  * tooltip can show raw values regardless of LTTB.
  */
-function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
+function buildDatasets(payload: NormalizedChartPayload, mode: ThemeMode): BenchDataset[] {
   const raw = payload.series ?? {};
   const meta = payload.series_meta ?? {};
   const n = payload.commits.length;
@@ -230,9 +247,9 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
     .map((name) => {
       const seriesMeta = meta[name] ?? {};
       const rawValues = Array.isArray(raw[name]) ? raw[name] : [];
-      // Color by FORMAT (hue) + ENGINE (shade), identity-based so the `?n=all`
-      // reshape never reshuffles a series' color (see `colorForSeries`).
-      const color = colorForSeries(name, seriesMeta);
+      // Tier-based, theme-aware style: the hero Vortex/Parquet series get vivid,
+      // thicker lines; everything else is muted and thin (see `seriesStyle`).
+      const style = seriesStyle(name, seriesMeta, mode);
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the current
       // visible window with raw or LTTB-kept values. With `spanGaps: true` the
       // line connects across nulls, so a series with partial coverage still
@@ -242,9 +259,9 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
         label: name,
         data,
         rawData: rawValues,
-        borderColor: color,
-        backgroundColor: `${color}20`,
-        borderWidth: 1.5,
+        borderColor: style.color,
+        backgroundColor: `${style.color}20`,
+        borderWidth: style.width,
         spanGaps: true,
         tension: 0,
         pointRadius: 2,
@@ -837,8 +854,9 @@ class ChartController {
       // recomputed only when `replaceChartPayload` swaps in the wider window.
       state.displayUnit = pickDisplayUnit(payload.unit_kind, collectAllValues(payload));
 
+      const mode = currentMode();
       const labels = payload.commits.map(commitDateLabel);
-      const datasets = buildDatasets(payload);
+      const datasets = buildDatasets(payload, mode);
       const range = visibleRange(labels.length, state.ui.scope);
       const legendPosition = window.matchMedia?.('(max-width: 768px)').matches ? 'top' : 'bottom';
 
@@ -978,6 +996,7 @@ class ChartController {
       this.cb.setConstructed(true);
       state.rebuild = throttledRebuild;
       this.attachWheelPan(canvas, chart, throttledRebuild);
+      this.attachThemeRecolor();
       this.syncSliderBounds(labels.length);
       // Initial render: populate the null data for the initial window, then
       // bind the strip so its first paint reflects the same range.
@@ -994,6 +1013,43 @@ class ChartController {
     } finally {
       state.constructing = false;
     }
+  }
+
+  /**
+   * Recolor this chart's series when the page theme changes (the `data-theme`
+   * toggle or the system `prefers-color-scheme`), so the per-mode palette tracks
+   * light/dark. Both listeners ride the controller's abort signal, so teardown
+   * disconnects them.
+   */
+  private attachThemeRecolor(): void {
+    if (typeof MutationObserver === 'undefined') {
+      return;
+    }
+    const observer = new MutationObserver(() => this.recolorForTheme());
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    this.aborter.signal.addEventListener('abort', () => observer.disconnect(), { once: true });
+    window
+      .matchMedia?.('(prefers-color-scheme: dark)')
+      .addEventListener?.('change', () => this.recolorForTheme(), { signal: this.aborter.signal });
+  }
+
+  /** Recompute every dataset's color + width for the current theme and repaint. */
+  private recolorForTheme(): void {
+    const chart = this.state.chart;
+    if (!chart || this.state.disposed) {
+      return;
+    }
+    const mode = currentMode();
+    for (const ds of benchDatasets(chart)) {
+      const style = seriesStyle(ds.label ?? '', ds.benchMeta, mode);
+      ds.borderColor = style.color;
+      ds.backgroundColor = `${style.color}20`;
+      ds.borderWidth = style.width;
+    }
+    chart.update('none');
   }
 
   /**
@@ -1107,7 +1163,7 @@ class ChartController {
       yAxis.title.text = state.displayUnit.axisLabel;
     }
     const newLabels = payload.commits.map(commitDateLabel);
-    const newDatasets = buildDatasets(payload);
+    const newDatasets = buildDatasets(payload, currentMode());
     // Honour any explicit legend toggles the user had made already.
     for (const ds of newDatasets) {
       if (ds.label && state.overrides[ds.label]) {
