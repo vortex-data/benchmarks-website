@@ -147,30 +147,38 @@ const SECONDARY_WIDTH = 2.0;
 const NATIVE_WIDTH = 1.7;
 const MUTED_WIDTH = 1.4;
 
-/** The named series, keyed by `engine:format`, each with a hand-picked color and
- * an importance-tier width. A series not listed here falls through to `MUTED`. */
+/** The query series, keyed by `engine:format`, each with a hand-picked color and
+ * an importance-tier width. The Vortex hero is the on-disk `vortex-file-compressed`
+ * format -- red on datafusion, green on duckdb. The two lance engines carry
+ * distinct slate shades so they stay apart. A pair not listed here falls through
+ * to the per-format defaults in `FORMAT`. */
 const KEYED: Record<string, SeriesStyle> = {
-  'datafusion:vortex': { color: '#ef4444', width: HERO_WIDTH }, // bright red
-  'duckdb:vortex': { color: '#22c55e', width: HERO_WIDTH }, // neon green
+  'datafusion:vortex-file-compressed': { color: '#ef4444', width: HERO_WIDTH }, // bright red
+  'duckdb:vortex-file-compressed': { color: '#22c55e', width: HERO_WIDTH }, // neon green
   'datafusion:vortex-compact': { color: '#a855f7', width: COMPACT_WIDTH }, // bright purple
   'duckdb:vortex-compact': { color: '#7e22ce', width: COMPACT_WIDTH }, // deep purple
   'datafusion:parquet': { color: '#38bdf8', width: SECONDARY_WIDTH }, // light blue
   'duckdb:parquet': { color: '#2563eb', width: SECONDARY_WIDTH }, // dark(er) blue
   'duckdb:duckdb': { color: '#eab308', width: NATIVE_WIDTH }, // gold
+  'datafusion:lance': { color: '#94a3b8', width: MUTED_WIDTH }, // neutral slate
+  'duckdb:lance': { color: '#475569', width: MUTED_WIDTH }, // darker slate
+  'datafusion:arrow': { color: '#f97316', width: MUTED_WIDTH }, // orange
 };
 
-/** Muted colors for the non-named series, looked up by `engine:format` first
- * (so the two lance engines stay distinguishable) then by bare format. */
-const MUTED: Record<string, string> = {
-  'datafusion:lance': '#94a3b8', // neutral slate
-  'duckdb:lance': '#475569', // darker slate
-  'datafusion:arrow': '#f97316', // orange
-  'in-memory-arrow': '#f97316', // orange
-  arrow: '#a8a29e', // warm stone gray (other engines)
+/** Per-format defaults, used for the engine-less compression-time series and as
+ * the fallback for any `engine:format` pair not pinned in `KEYED`. Each format's
+ * signature color matches its query-series color (Vortex's datafusion red). */
+const FORMAT: Record<string, SeriesStyle> = {
+  'vortex-file-compressed': { color: '#ef4444', width: HERO_WIDTH }, // red
+  'vortex-compact': { color: '#a855f7', width: COMPACT_WIDTH }, // purple
+  parquet: { color: '#38bdf8', width: SECONDARY_WIDTH }, // light blue
+  duckdb: { color: '#eab308', width: NATIVE_WIDTH }, // gold
+  lance: { color: '#94a3b8', width: MUTED_WIDTH }, // slate
+  arrow: { color: '#f97316', width: MUTED_WIDTH }, // orange
 };
 
-/** The catch-all muted color for an otherwise-unknown series. */
-const MUTED_FALLBACK = '#94a3b8';
+/** The catch-all style for an otherwise-unknown series. */
+const FALLBACK: SeriesStyle = { color: '#94a3b8', width: MUTED_WIDTH };
 
 /** Resolve a series' `(engine, format)` from its meta, falling back to splitting
  * the `engine:format` label. */
@@ -185,23 +193,23 @@ function seriesDims(
 }
 
 /**
- * The line color and width for a series. The named Vortex / Parquet series get
- * vivid, thicker lines; everything else is muted and thin. Color carries the
- * signal, so lines stay solid and the hierarchy reads at a glance. The palette
- * is mode-independent -- each color reads on both the light and dark card.
+ * The line color and width for a series. The named Vortex / Parquet query series
+ * get vivid, thicker lines; everything else is muted and thin. An `engine:format`
+ * pin wins first; otherwise the format's signature default applies (which also
+ * colors the engine-less compression-time series). Color carries the signal, so
+ * lines stay solid and the hierarchy reads at a glance. The palette is
+ * mode-independent -- each color reads on both the light and dark card.
  */
 export function seriesStyle(
   name: string,
   meta: { engine?: string; format?: string } | null | undefined,
 ): SeriesStyle {
   const { engine, format } = seriesDims(name, meta);
-  const key = engine && format ? `${engine}:${format}` : name;
-  const keyed = KEYED[key];
+  const keyed = engine && format ? KEYED[`${engine}:${format}`] : undefined;
   if (keyed) {
     return keyed;
   }
-  const color = MUTED[key] || (format ? MUTED[format] : undefined) || MUTED_FALLBACK;
-  return { color, width: MUTED_WIDTH };
+  return (format && FORMAT[format]) || FALLBACK;
 }
 
 /** First 7 characters of a commit SHA. */
