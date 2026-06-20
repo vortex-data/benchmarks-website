@@ -10,17 +10,22 @@
 # The Vercel project's Root Directory must be set to `web/` (Phase-4.2 console step);
 # the CLI runs from the repo root and uses the pulled project settings to build web/.
 #
-# Trigger: production deploy on push to `develop` (this repo's main branch after the
-# decouple merge); `workflow_dispatch` for manual prod/preview runs during setup. No
-# pull_request/feature-branch trigger — the project + secrets are provisioned in 4.2
-# and a feature-branch preview flow is out of scope here. End-to-end deploy is
-# validated in Phase 4.2 once creds exist; 4.1 only authors + actionlint-validates.
+# Triggers: production deploy on push to `develop`; a PREVIEW deploy on every
+# pull_request that touches `web/` (or this workflow), which posts the preview URL
+# back to the PR as a sticky comment; and `workflow_dispatch` for manual prod/preview
+# runs. Fork PRs are skipped (they have no access to VERCEL_TOKEN). The CLI builds on
+# the runner and deploys --prebuilt, so this repo never races the monorepo's project.
 
 name: Web Deploy
 
 on:
   push:
     branches: [develop]
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -38,6 +43,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: write
 
 env:
   VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -51,6 +57,11 @@ jobs:
     name: Build & deploy to Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Fork PRs have no access to VERCEL_TOKEN, and we do not auto-deploy untrusted
+    # code; same-repo PRs, pushes, and manual dispatches run normally.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,9 +89,9 @@ jobs:
 
       - name: Resolve target environment
         id: target
-        # push to develop => production; manual dispatch uses the input.
-        # Expression context is passed through env: rather than interpolated into the
-        # shell body, so a value can never be parsed as shell (injection-safe).
+        # push to develop => production; pull_request => preview; manual dispatch =>
+        # the input. Expression context is passed through env: rather than interpolated
+        # into the shell body, so a value can never be parsed as shell (injection-safe).
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_ENV: ${{ inputs.environment }}
@@ -88,6 +99,8 @@ jobs:
           set -Eeuo pipefail
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             echo "env=${INPUT_ENV}" >> "$GITHUB_OUTPUT"
+          elif [ "${EVENT_NAME}" = "pull_request" ]; then
+            echo "env=preview" >> "$GITHUB_OUTPUT"
           else
             echo "env=production" >> "$GITHUB_OUTPUT"
           fi
@@ -105,10 +118,28 @@ jobs:
           fi
 
       - name: Deploy (prebuilt)
+        id: deploy
         run: |
           set -Eeuo pipefail
           if [ "${{ steps.target.outputs.env }}" = "production" ]; then
-            vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+            url="$(vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" | tail -n1)"
           else
-            vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}"
+            url="$(vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}" | tail -n1)"
           fi
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          printf 'Deployed: %s\n' "$url"
+
+      # On a pull_request, post the preview URL back to the PR as a single sticky
+      # comment (edited in place on each push) so the preview is one click from the PR.
+      - name: Comment preview URL on the PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --body "Vercel preview for \`${COMMIT_SHA}\`: ${DEPLOY_URL}" \
+            --edit-last --create-if-none
