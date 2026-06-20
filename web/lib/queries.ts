@@ -683,8 +683,9 @@ export interface GroupChartsResponse {
  * matching how the benchmark groups are shown on the v2 site: compression
  * throughput, compression size, Clickbench, the TPC-H ladder (NVMe/S3
  * alternating across SF=1/10/100), TPC-DS, then Random Access, Statistical and
- * Population Genetics, PolarSignals Profiling, and fineweb. Group names not in
- * this list sort after every listed name, alphabetically (see [`groupSortKey`]).
+ * Population Genetics, PolarSignals Profiling, fineweb (NVMe/S3), and appian
+ * (NVMe). Group names not in this list sort after every listed name,
+ * alphabetically (see [`groupSortKey`]).
  */
 const GROUP_ORDER: readonly string[] = [
   'Compression',
@@ -701,6 +702,8 @@ const GROUP_ORDER: readonly string[] = [
   'Statistical and Population Genetics',
   'PolarSignals Profiling',
   'fineweb [nvme]',
+  'fineweb [s3]',
+  'appian [nvme]',
 ];
 
 /**

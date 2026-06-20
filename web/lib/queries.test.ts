@@ -345,6 +345,21 @@ describe('compareGroupSortKey canonical group ordering (no DB)', () => {
     );
     expect(sorted).toEqual(['Compression', 'Random Access', 'cohere-large-10m / partitioned']);
   });
+
+  it('places the appian group directly after both fineweb groups', () => {
+    const sorted = [
+      'fineweb [s3]',
+      'appian [nvme]',
+      'fineweb [nvme]',
+      'PolarSignals Profiling',
+    ].sort(compareGroupSortKey);
+    expect(sorted).toEqual([
+      'PolarSignals Profiling',
+      'fineweb [nvme]',
+      'fineweb [s3]',
+      'appian [nvme]',
+    ]);
+  });
 });
 
 // Slug-decode rejection short-circuits to a 400 before any DB call, so these

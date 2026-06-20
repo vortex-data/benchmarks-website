@@ -120,7 +120,8 @@ order is the curated `GROUP_ORDER` in `queries.ts`:
 Compression, Compression Size, Clickbench,
 TPC-H (NVMe/S3) SF=1, SF=10, SF=100 (alternating),
 TPC-DS (NVMe) SF=1, Random Access,
-Statistical and Population Genetics, PolarSignals Profiling, fineweb [nvme]
+Statistical and Population Genetics, PolarSignals Profiling,
+fineweb (NVMe/S3), Appian (NVMe)
 ```
 
 Groups not in the list sort last, alphabetically.
