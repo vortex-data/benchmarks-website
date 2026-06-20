@@ -212,6 +212,39 @@ export function seriesStyle(
   return (format && FORMAT[format]) || FALLBACK;
 }
 
+/** Format draw priority, front (low) to back (high) -- Chart.js renders a lower
+ * `order` on top. Vortex sits in front, arrow at the back. */
+const FORMAT_ORDER: Record<string, number> = {
+  'vortex-file-compressed': 0,
+  parquet: 1,
+  'vortex-compact': 2,
+  duckdb: 3,
+  lance: 4,
+  arrow: 5,
+};
+const FORMAT_ORDER_FALLBACK = 6;
+
+/** Engine draw priority within a format: datafusion is layered ahead of duckdb. */
+const ENGINE_ORDER: Record<string, number> = { datafusion: 0, duckdb: 1 };
+
+/**
+ * The Chart.js `order` for a series (lower renders on top). Series are layered by
+ * format importance first -- Vortex in front, then Parquet, vortex-compact, the
+ * duckdb native format, lance, and arrow at the back -- and within a format
+ * datafusion is drawn ahead of duckdb. The format term dominates the engine term
+ * so the whole Vortex pair stays in front of the whole Parquet pair.
+ */
+export function seriesOrder(
+  name: string,
+  meta: { engine?: string; format?: string } | null | undefined,
+): number {
+  const { engine, format } = seriesDims(name, meta);
+  const formatRank =
+    format && format in FORMAT_ORDER ? FORMAT_ORDER[format] : FORMAT_ORDER_FALLBACK;
+  const engineRank = engine && engine in ENGINE_ORDER ? ENGINE_ORDER[engine] : 0;
+  return formatRank * 10 + engineRank;
+}
+
 /**
  * The user-facing display name for a format string. Vortex's on-disk format is
  * stored as `vortex-file-compressed` everywhere in the data (series keys, filter

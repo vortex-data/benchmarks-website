@@ -39,6 +39,7 @@ import {
   predecessorValue,
   rangeTouchesUnloadedHistory,
   displaySeriesLabel,
+  seriesOrder,
   seriesPassesFilter,
   seriesPassesGroupFilter,
   seriesStyle,
@@ -246,6 +247,9 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
         borderColor: style.color,
         backgroundColor: `${style.color}20`,
         borderWidth: style.width,
+        // Layer the hero series on top: Vortex in front ... arrow at the back,
+        // datafusion ahead of duckdb. Lower `order` renders on top in Chart.js.
+        order: seriesOrder(name, seriesMeta),
         spanGaps: true,
         tension: 0,
         pointRadius: 2,

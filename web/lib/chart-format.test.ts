@@ -34,6 +34,7 @@ import {
   predecessorValue,
   rangeTouchesUnloadedHistory,
   seedActiveFromAllowlist,
+  seriesOrder,
   seriesPassesFilter,
   seriesPassesGroupFilter,
   seriesStyle,
@@ -179,6 +180,35 @@ describe('seriesStyle', () => {
       tag('datafusion', 'vortex-file-compressed'),
     );
     expect(unknown.width).toBeLessThan(hero.width);
+  });
+});
+
+describe('seriesOrder', () => {
+  const tag = (engine: string, format: string) => ({ engine, format });
+  const ord = (engine: string, format: string) =>
+    seriesOrder(`${engine}:${format}`, tag(engine, format));
+
+  it('layers formats front-to-back: vortex, parquet, vortex-compact, duckdb, lance, arrow', () => {
+    const ranks = [
+      ord('datafusion', 'vortex-file-compressed'),
+      ord('datafusion', 'parquet'),
+      ord('datafusion', 'vortex-compact'),
+      ord('duckdb', 'duckdb'),
+      ord('datafusion', 'lance'),
+      ord('datafusion', 'arrow'),
+    ];
+    const sorted = [...ranks].sort((a, b) => a - b);
+    expect(ranks).toEqual(sorted);
+  });
+
+  it('draws datafusion ahead of duckdb within a format', () => {
+    expect(ord('datafusion', 'vortex-file-compressed')).toBeLessThan(
+      ord('duckdb', 'vortex-file-compressed'),
+    );
+  });
+
+  it('keeps the whole Vortex pair in front of the whole Parquet pair', () => {
+    expect(ord('duckdb', 'vortex-file-compressed')).toBeLessThan(ord('datafusion', 'parquet'));
   });
 });
 
