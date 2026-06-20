@@ -120,8 +120,14 @@ describe('seriesStyle', () => {
   const tag = (engine: string, format: string) => ({ engine, format });
 
   it('makes the hero Vortex series the loudest: red/green, distinct per engine, thickest', () => {
-    const dfv = seriesStyle('datafusion:vortex-file-compressed', tag('datafusion', 'vortex-file-compressed'));
-    const dkv = seriesStyle('duckdb:vortex-file-compressed', tag('duckdb', 'vortex-file-compressed'));
+    const dfv = seriesStyle(
+      'datafusion:vortex-file-compressed',
+      tag('datafusion', 'vortex-file-compressed'),
+    );
+    const dkv = seriesStyle(
+      'duckdb:vortex-file-compressed',
+      tag('duckdb', 'vortex-file-compressed'),
+    );
     expect(dfv.color).toBe('#ef4444');
     expect(dkv.color).toBe('#22c55e');
     expect(dfv.color).not.toBe(dkv.color);
@@ -130,7 +136,10 @@ describe('seriesStyle', () => {
   });
 
   it('puts Parquet a notch under Vortex (blue, thinner than the hero)', () => {
-    const vortex = seriesStyle('datafusion:vortex-file-compressed', tag('datafusion', 'vortex-file-compressed'));
+    const vortex = seriesStyle(
+      'datafusion:vortex-file-compressed',
+      tag('datafusion', 'vortex-file-compressed'),
+    );
     const parquet = seriesStyle('datafusion:parquet', tag('datafusion', 'parquet'));
     expect(parquet.color).toBe('#38bdf8');
     expect(parquet.width).toBeLessThan(vortex.width);
@@ -165,7 +174,10 @@ describe('seriesStyle', () => {
   it('falls back to a muted color + width for an unknown series', () => {
     const unknown = seriesStyle('datafusion:mystery', tag('datafusion', 'mystery'));
     expect(unknown.color).toBe('#94a3b8');
-    const hero = seriesStyle('datafusion:vortex-file-compressed', tag('datafusion', 'vortex-file-compressed'));
+    const hero = seriesStyle(
+      'datafusion:vortex-file-compressed',
+      tag('datafusion', 'vortex-file-compressed'),
+    );
     expect(unknown.width).toBeLessThan(hero.width);
   });
 });
