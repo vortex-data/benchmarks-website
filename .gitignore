@@ -3,3 +3,4 @@ dist
 .scratch/
 /target
 .vercel
+.env*
