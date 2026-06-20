@@ -15,10 +15,12 @@ import type {
 } from 'chart.js';
 
 import {
+  assignStableColors,
   CHART_FETCH_N,
   clampRangeWindow,
   collectAllValues,
   colorFor,
+  decimateSeries,
   DEFAULT_VISIBLE,
   escapeHtml,
   FETCH_N,
@@ -31,7 +33,6 @@ import {
   INTERACTION_FULL_PRIORITY,
   labelForCommit,
   LAZY_HYDRATION_ROOT_MARGIN,
-  lttbIndices,
   MAX_VISIBLE_POINTS,
   normalizeChartPayload,
   PAN_THROTTLE_MS,
@@ -116,6 +117,10 @@ interface CardState {
   /** Series labels the user has explicitly legend-toggled on this card. Once
    * set, the global/group filters no longer drive that label here. */
   overrides: Record<string, true>;
+  /** Stable per-series colors by label. Series are colored by first-seen order
+   * (see [`assignStableColors`]) so the `?n=all` upgrade surfacing older series
+   * never reshuffles the colors of series already on the chart. */
+  seriesColors: Map<string, string>;
   displayUnit: DisplayUnit;
   /** v3 also tracked `__bench_inline_trimmed`; it was write-only there and is
    * dropped here. `payload.history.complete` carries the same information. */
@@ -215,7 +220,10 @@ function benchDatasets(chart: ChartJs): BenchDataset[] {
  * visible range. `rawData` holds a reference to the original payload so the
  * tooltip can show raw values regardless of LTTB.
  */
-function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
+function buildDatasets(
+  payload: NormalizedChartPayload,
+  colors: ReadonlyMap<string, string>,
+): BenchDataset[] {
   const raw = payload.series ?? {};
   const meta = payload.series_meta ?? {};
   const n = payload.commits.length;
@@ -225,6 +233,9 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
     .map((name, i) => {
       const seriesMeta = meta[name] ?? {};
       const rawValues = Array.isArray(raw[name]) ? raw[name] : [];
+      // Stable color by label (see `assignStableColors`); `colorFor(i)` is only a
+      // fallback for a label the caller did not pre-register in `colors`.
+      const color = colors.get(name) ?? colorFor(i);
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the current
       // visible window with raw or LTTB-kept values. With `spanGaps: true` the
       // line connects across nulls, so a series with partial coverage still
@@ -234,8 +245,8 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
         label: name,
         data,
         rawData: rawValues,
-        borderColor: colorFor(i),
-        backgroundColor: `${colorFor(i)}20`,
+        borderColor: color,
+        backgroundColor: `${color}20`,
         borderWidth: 1.5,
         spanGaps: true,
         tension: 0,
@@ -404,6 +415,7 @@ class ChartController {
       payload: null,
       ui: { y: 'linear', scope: DEFAULT_VISIBLE },
       overrides: {},
+      seriesColors: new Map(),
       displayUnit: IDENTITY_UNIT,
       fullLoaded: false,
       initialFetchEntry: null,
@@ -778,6 +790,20 @@ class ChartController {
   }
 
   /**
+   * Fold this payload's series labels into the chart's stable color map
+   * (first-seen order) and return the map for [`buildDatasets`]. Run on every
+   * (re)build so the `?n=all` upgrade keeps every already-seen series on its
+   * original color and only assigns fresh palette slots to newly surfaced series.
+   */
+  private colorsFor(payload: NormalizedChartPayload): ReadonlyMap<string, string> {
+    this.state.seriesColors = assignStableColors(
+      this.state.seriesColors,
+      Object.keys(payload.series ?? {}),
+    );
+    return this.state.seriesColors;
+  }
+
+  /**
    * Construct the Chart.js instance when the payload is present and the
    * enclosing group (if any) is open. Loads Chart.js lazily on first need.
    * Idempotent across overlapping calls via the `constructing` latch.
@@ -830,7 +856,7 @@ class ChartController {
       state.displayUnit = pickDisplayUnit(payload.unit_kind, collectAllValues(payload));
 
       const labels = payload.commits.map(labelForCommit);
-      const datasets = buildDatasets(payload);
+      const datasets = buildDatasets(payload, this.colorsFor(payload));
       const range = visibleRange(labels.length, state.ui.scope);
       const legendPosition = window.matchMedia?.('(max-width: 768px)').matches ? 'top' : 'bottom';
 
@@ -1020,40 +1046,19 @@ class ChartController {
       max = min;
     }
 
-    // One "virtual series" for LTTB: for each visible commit index, the max
-    // non-null value across all datasets. Series in a Vortex chart share unit
-    // and scale, so max-across-series picks visually salient peaks. The kept
-    // indices are then SHARED across every dataset, which is the cap's only
-    // correct interpretation (per-series LTTB picked different peaks per
-    // series and the union of x-positions blew past the cap).
-    const unionIdxs: number[] = [];
-    const unionVals: number[] = [];
-    for (let i = min; i <= max; i++) {
-      let bestY: number | null = null;
-      for (const ds of datasets) {
-        const v = ds.rawData?.[i];
-        if (v !== null && v !== undefined && !Number.isNaN(v) && (bestY === null || v > bestY)) {
-          bestY = v;
-        }
-      }
-      if (bestY !== null) {
-        unionIdxs.push(i);
-        unionVals.push(bestY);
-      }
-    }
-
-    const keptSet = new Set<number>();
-    let anyDownsampled = false;
-    if (unionIdxs.length <= MAX_VISIBLE_POINTS) {
-      for (const idx of unionIdxs) {
-        keptSet.add(idx);
-      }
-    } else {
-      for (const local of lttbIndices(unionIdxs, unionVals, MAX_VISIBLE_POINTS)) {
-        keptSet.add(unionIdxs[local]);
-      }
-      anyDownsampled = true;
-    }
+    // Pick the kept commit indices by downsampling each series INDEPENDENTLY
+    // (see [`decimateSeries`]). The earlier approach LTTB'd a single
+    // max-across-series "virtual series" and shared its indices across every
+    // dataset; a series that never drove that maximum then lost its own points
+    // once the window exceeded the cap (the "data disappears after loading all"
+    // bug). The kept set is still capped at [`MAX_VISIBLE_POINTS`] distinct
+    // x-positions, split across the series with data in view.
+    const { kept: keptSet, downsampled: anyDownsampled } = decimateSeries(
+      datasets.map((ds) => ds.rawData),
+      min,
+      max,
+      MAX_VISIBLE_POINTS,
+    );
 
     // Write the kept set into every dataset, scaled by the locked display-unit
     // multiplier (applied here, not on ingest or in SQL, so the wire payload
@@ -1118,7 +1123,7 @@ class ChartController {
       yAxis.title.text = state.displayUnit.axisLabel;
     }
     const newLabels = payload.commits.map(labelForCommit);
-    const newDatasets = buildDatasets(payload);
+    const newDatasets = buildDatasets(payload, this.colorsFor(payload));
     // Honour any explicit legend toggles the user had made already.
     for (const ds of newDatasets) {
       if (ds.label && state.overrides[ds.label]) {

@@ -4,10 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  assignStableColors,
   canonicalHistory,
   clampRangeWindow,
   collectAllValues,
   colorFor,
+  decimateSeries,
   escapeHtml,
   FETCH_TIMEOUT_MS,
   firstLine,
@@ -241,6 +243,81 @@ describe('lttbIndices', () => {
     for (let i = 1; i < kept.length; i++) {
       expect(kept[i]).toBeGreaterThan(kept[i - 1]);
     }
+  });
+});
+
+describe('assignStableColors', () => {
+  it('colors a fresh series set by sorted first-seen order', () => {
+    const colors = assignStableColors(new Map(), ['b', 'a', 'c']);
+    expect(colors.get('a')).toBe(colorFor(0));
+    expect(colors.get('b')).toBe(colorFor(1));
+    expect(colors.get('c')).toBe(colorFor(2));
+  });
+
+  it('keeps an existing series on its color when ?n=all surfaces an older series', () => {
+    // The latest-100 payload only has the always-running series.
+    const windowed = assignStableColors(new Map(), ['duckdb:parquet']);
+    expect(windowed.get('duckdb:parquet')).toBe(colorFor(0));
+    // Loading all data surfaces an older series that SORTS FIRST. Under the old
+    // index-within-payload coloring `duckdb:parquet` would shift to colorFor(1)
+    // and `aengine:aformat` (which has no recent data) would steal colorFor(0),
+    // making the recent points look like they vanished. The existing series must
+    // instead keep its color and the new one take the next slot.
+    const all = assignStableColors(windowed, ['aengine:aformat', 'duckdb:parquet']);
+    expect(all.get('duckdb:parquet')).toBe(colorFor(0));
+    expect(all.get('aengine:aformat')).toBe(colorFor(1));
+    expect(all.get('aengine:aformat')).not.toBe(all.get('duckdb:parquet'));
+  });
+
+  it('is idempotent for an unchanged series set', () => {
+    const first = assignStableColors(new Map(), ['x', 'y']);
+    const second = assignStableColors(first, ['x', 'y']);
+    expect([...second.entries()]).toEqual([...first.entries()]);
+  });
+});
+
+describe('decimateSeries', () => {
+  it('keeps every commit with data and reports no downsampling under the cap', () => {
+    const a = [1, 2, null, 4, 5];
+    const b = [null, null, 3, null, null];
+    const { kept, downsampled } = decimateSeries([a, b], 0, 4, 500);
+    expect(downsampled).toBe(false);
+    expect([...kept].sort((x, y) => x - y)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('preserves a non-dominant series’ points when downsampling (regression)', () => {
+    const N = 3000;
+    // Series A: large values on EVERY commit, so it drives the max-across-series
+    // union everywhere. Series B: small values on only a few recent commits.
+    const a = Array.from({ length: N }, (_, i) => 1_000_000 + i);
+    const b: (number | null)[] = new Array<number | null>(N).fill(null);
+    const bPoints = [2990, 2993, 2996, 2999];
+    for (const i of bPoints) {
+      b[i] = 1_000;
+    }
+    const { kept, downsampled } = decimateSeries([a, b], 0, N - 1, 500);
+    expect(downsampled).toBe(true);
+    // The old shared-union LTTB kept only B's pinned last point (2999); every
+    // one of B's points must now survive.
+    for (const i of bPoints) {
+      expect(kept.has(i)).toBe(true);
+    }
+  });
+
+  it('keeps the total distinct x-positions within the cap', () => {
+    const N = 5000;
+    const a = Array.from({ length: N }, (_, i) => Math.sin(i / 7));
+    const b = Array.from({ length: N }, (_, i) => Math.cos(i / 11) * 1_000);
+    const { kept } = decimateSeries([a, b], 0, N - 1, 500);
+    expect(kept.size).toBeLessThanOrEqual(500);
+  });
+
+  it('ignores series with no data in the visible window', () => {
+    const a = [1, 2, 3];
+    const empty = [null, null, null];
+    const { kept, downsampled } = decimateSeries([a, empty], 0, 2, 500);
+    expect(downsampled).toBe(false);
+    expect([...kept].sort((x, y) => x - y)).toEqual([0, 1, 2]);
   });
 });
 

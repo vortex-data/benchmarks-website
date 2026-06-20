@@ -89,6 +89,36 @@ export function colorFor(i: number): string {
   return PALETTE[i % PALETTE.length];
 }
 
+/**
+ * Stable per-series colors, keyed by series label. Series are colored by
+ * FIRST-SEEN order across the lifetime of a chart rather than by their index
+ * within whichever payload is currently loaded.
+ *
+ * Index-within-payload coloring is unstable across a payload reshape: the
+ * `?n=all` upgrade adds series that only ran on older commits (and so are absent
+ * from the latest-100 window), and any such series that sorts ahead of an
+ * existing one shifts every later series onto the next palette slot. That makes
+ * recent points appear to vanish -- a color that was drawing a recent-data
+ * series gets reassigned to the newly surfaced, recent-data-less older series.
+ *
+ * `prev` carries the colors already assigned for this chart; existing names keep
+ * their color, and new names (folded in sorted order for determinism) take the
+ * next palette slots after them. Returns a NEW map so callers can swap it in
+ * wholesale.
+ */
+export function assignStableColors(
+  prev: ReadonlyMap<string, string>,
+  names: readonly string[],
+): Map<string, string> {
+  const next = new Map(prev);
+  for (const name of [...names].sort()) {
+    if (!next.has(name)) {
+      next.set(name, colorFor(next.size));
+    }
+  }
+  return next;
+}
+
 /** First 7 characters of a commit SHA. */
 export function shortSha(sha: unknown): string {
   return typeof sha === 'string' ? sha.slice(0, 7) : String(sha);
@@ -489,6 +519,73 @@ export function lttbIndices(
   }
   out[threshold - 1] = n - 1;
   return out;
+}
+
+/**
+ * Choose which commit indices to render for a set of series over the inclusive
+ * visible window `[min, max]`, keeping the total rendered x-positions within
+ * `maxPoints`.
+ *
+ * Each series is downsampled INDEPENDENTLY. The previous approach built one
+ * "virtual series" -- the per-commit max across every series -- LTTB'd that, and
+ * shared the chosen indices across all series. Those indices tracked whichever
+ * series drove the maximum, so a series that never dominated rendered only where
+ * the shared indices happened to land on its data; once the window exceeded the
+ * cap it could lose every point but the LTTB-pinned last one. Here every series
+ * with data in view runs its own LTTB over its own points, and the cap is split
+ * across those series so the union of kept indices still stays within
+ * `maxPoints`.
+ *
+ * Returns the kept commit indices and whether any downsampling happened (the
+ * latter drives the "downsampled" badge).
+ */
+export function decimateSeries(
+  seriesRawData: readonly ((number | null)[] | undefined)[],
+  min: number,
+  max: number,
+  maxPoints: number,
+): { kept: Set<number>; downsampled: boolean } {
+  // Gather each series' (index, value) points within the window, plus the set
+  // of distinct commit indices carrying data in ANY series.
+  const perSeries: { idxs: number[]; vals: number[] }[] = [];
+  const distinct = new Set<number>();
+  for (const raw of seriesRawData) {
+    if (!Array.isArray(raw)) {
+      continue;
+    }
+    const idxs: number[] = [];
+    const vals: number[] = [];
+    for (let i = min; i <= max; i++) {
+      const v = raw[i];
+      if (v !== null && v !== undefined && !Number.isNaN(v)) {
+        idxs.push(i);
+        vals.push(v);
+        distinct.add(i);
+      }
+    }
+    if (idxs.length > 0) {
+      perSeries.push({ idxs, vals });
+    }
+  }
+
+  const kept = new Set<number>();
+  // Below the cap every commit with data renders raw, so no series loses a point.
+  if (distinct.size <= maxPoints) {
+    for (const idx of distinct) {
+      kept.add(idx);
+    }
+    return { kept, downsampled: false };
+  }
+
+  // Split the cap across the series with data so the unioned kept set stays
+  // within `maxPoints`; `lttbIndices` always keeps each series' own endpoints.
+  const budget = Math.max(2, Math.floor(maxPoints / perSeries.length));
+  for (const series of perSeries) {
+    for (const local of lttbIndices(series.idxs, series.vals, budget)) {
+      kept.add(series.idxs[local]);
+    }
+  }
+  return { kept, downsampled: true };
 }
 
 // ---------------------------------------------------------------------------
