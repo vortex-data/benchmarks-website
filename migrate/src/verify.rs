@@ -34,7 +34,7 @@ use arrow_array::StringArray;
 use duckdb::Connection;
 use serde::Deserialize;
 
-use crate::classifier::QUERY_SUITES;
+use crate::classifier::{FanOut, QUERY_SUITES};
 use crate::postgres::ColKind;
 use crate::postgres::column_kind;
 use crate::postgres::connect_postgres;
@@ -287,7 +287,10 @@ fn display_query_group(dataset: &str, scale_factor: Option<&str>, storage: &str)
         .find(|s| s.prefix.eq_ignore_ascii_case(dataset))
         .copied();
     match suite {
-        Some(suite) if suite.fan_out => {
+        // Only `StorageAndScale` suites fanned out on the live v2 site; `Storage` suites
+        // (fineweb, appian) rendered as a single collapsed group there, so the structural
+        // diff maps both storages back onto the plain display name.
+        Some(suite) if suite.fan_out == FanOut::StorageAndScale => {
             let storage_disp = match storage {
                 "s3" | "S3" => "S3",
                 _ => "NVMe",

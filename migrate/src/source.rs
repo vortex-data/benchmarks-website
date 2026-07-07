@@ -137,4 +137,5 @@ pub(crate) const KNOWN_FILE_SIZES_SUITES: &[&str] = &[
     "fineweb",
     "fineweb-s3",
     "polarsignals",
+    "appian-nvme",
 ];

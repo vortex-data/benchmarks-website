@@ -17,6 +17,8 @@ use clap::ValueEnum;
 use tracing_subscriber::EnvFilter;
 use vortex_bench_migrate::migrate;
 use vortex_bench_migrate::postgres;
+use vortex_bench_migrate::postgres::LoadMode;
+use vortex_bench_migrate::postgres::MergeOptions;
 use vortex_bench_migrate::source::Source;
 use vortex_bench_migrate::verify;
 
@@ -98,8 +100,26 @@ enum Command {
         /// re-migration path); without it a re-load aborts on the first duplicate
         /// `measurement_id`. `TRUNCATE` needs table ownership, so `--replace` must
         /// connect as the table owner (the RDS master), not `migrator`.
-        #[arg(long, default_value_t = false)]
+        #[arg(long, default_value_t = false, conflicts_with_all = ["merge_cutoff", "refresh_dataset", "dry_run"])]
         replace: bool,
+        /// Additive merge into a populated target: COPY into temp staging tables,
+        /// then `INSERT ... ON CONFLICT DO NOTHING`, so existing rows are never
+        /// modified or removed -- except `query_measurements` rows matching a
+        /// `--refresh-dataset` whose commit is STRICTLY OLDER than this timestamp,
+        /// which are deleted and re-inserted from the snapshot. Set it to the
+        /// dual-write go-live instant so live-emitter rows stay untouchable.
+        /// Accepts anything Postgres parses as `timestamptz` (RFC 3339 works).
+        #[arg(long)]
+        merge_cutoff: Option<String>,
+        /// Dataset whose pre-cutoff `query_measurements` rows are refreshed from
+        /// the snapshot during a merge (repeatable). Omit for a purely additive
+        /// merge with no delete at all.
+        #[arg(long, requires = "merge_cutoff")]
+        refresh_dataset: Vec<String>,
+        /// Run the whole merge transaction, print its per-table counts, then ROLL
+        /// BACK instead of committing, leaving the target bit-identical.
+        #[arg(long, default_value_t = false, requires = "merge_cutoff")]
+        dry_run: bool,
     },
 }
 
@@ -192,8 +212,22 @@ fn run() -> Result<()> {
             postgres_target,
             ca_cert,
             replace,
+            merge_cutoff,
+            refresh_dataset,
+            dry_run,
         } => {
-            let summary = postgres::load(&duckdb, &postgres_target, ca_cert.as_deref(), replace)?;
+            let mode = match (replace, merge_cutoff) {
+                (true, None) => LoadMode::Replace,
+                (false, Some(cutoff)) => LoadMode::Merge(MergeOptions {
+                    cutoff,
+                    refresh_datasets: refresh_dataset,
+                    dry_run,
+                }),
+                (false, None) => LoadMode::Seed,
+                // clap's `conflicts_with_all` rejects this combination before we get here.
+                (true, Some(_)) => unreachable!("--replace conflicts with --merge-cutoff"),
+            };
+            let summary = postgres::load(&duckdb, &postgres_target, ca_cert.as_deref(), &mode)?;
             print!("{summary}");
             Ok(())
         }

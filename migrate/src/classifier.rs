@@ -30,7 +30,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "Clickbench",
         query_prefix: "CLICKBENCH",
         dataset_key: None,
-        fan_out: false,
+        fan_out: FanOut::None,
         skip: false,
     },
     QuerySuite {
@@ -38,7 +38,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "Statistical and Population Genetics",
         query_prefix: "STATPOPGEN",
         dataset_key: None,
-        fan_out: false,
+        fan_out: FanOut::None,
         skip: false,
     },
     QuerySuite {
@@ -46,7 +46,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "PolarSignals Profiling",
         query_prefix: "POLARSIGNALS",
         dataset_key: None,
-        fan_out: false,
+        fan_out: FanOut::None,
         skip: false,
     },
     QuerySuite {
@@ -54,7 +54,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "GhArchive",
         query_prefix: "GHARCHIVE",
         dataset_key: None,
-        fan_out: false,
+        fan_out: FanOut::None,
         skip: false,
     },
     QuerySuite {
@@ -62,7 +62,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "TPC-H",
         query_prefix: "TPC-H",
         dataset_key: Some("tpch"),
-        fan_out: true,
+        fan_out: FanOut::StorageAndScale,
         skip: false,
     },
     QuerySuite {
@@ -70,7 +70,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "TPC-DS",
         query_prefix: "TPC-DS",
         dataset_key: Some("tpcds"),
-        fan_out: true,
+        fan_out: FanOut::StorageAndScale,
         skip: false,
     },
     QuerySuite {
@@ -78,7 +78,19 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         display_name: "Fineweb",
         query_prefix: "FINEWEB",
         dataset_key: None,
-        fan_out: false,
+        fan_out: FanOut::Storage,
+        skip: false,
+    },
+    // `appian` postdates v2's `QUERY_SUITES` and never rendered on the v2 site; the entry
+    // exists so its dump records migrate instead of counting as uncategorized. Like
+    // `fineweb`, it fans out by storage only (the live emitter writes `storage` with a NULL
+    // `scale_factor`).
+    QuerySuite {
+        prefix: "appian",
+        display_name: "Appian",
+        query_prefix: "APPIAN",
+        dataset_key: None,
+        fan_out: FanOut::Storage,
         skip: false,
     },
 ];
@@ -103,6 +115,23 @@ const ENGINE_RENAMES: &[(&str, &str)] = &[
     ("lance", "lance"),
 ];
 
+/// How a query suite's group fans out into per-dimension sub-groups.
+///
+/// `None` and `StorageAndScale` are faithful ports of v2's `getGroup`. `Storage` is a
+/// deliberate extension beyond v2: v2 folded every record of such a suite into one group
+/// regardless of `storage`, which for `fineweb` collapsed s3 and nvme runs onto the same
+/// `measurement_id` (the June-2026 backfill pollution). `Storage` keeps them apart, matching
+/// the dims the live v3 emitter writes (`storage` set, `scale_factor` NULL).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FanOut {
+    /// One group regardless of storage or scale factor.
+    None,
+    /// Fan out by storage only (e.g. `fineweb [s3]` vs `fineweb [nvme]`).
+    Storage,
+    /// Fan out by `(storage, scale_factor)` (e.g. `TPC-H (NVMe) (SF=1)`).
+    StorageAndScale,
+}
+
 /// One entry of [`QUERY_SUITES`].
 #[derive(Debug, Clone, Copy)]
 pub struct QuerySuite {
@@ -115,9 +144,8 @@ pub struct QuerySuite {
     /// Override for the dataset key v2 records use inside their `dataset`
     /// object. Falls back to `prefix` when `None`.
     pub dataset_key: Option<&'static str>,
-    /// True if the suite's group name fans out by `(storage, scale_factor)`
-    /// (e.g. `TPC-H (NVMe) (SF=1)`); false collapses to a single group.
-    pub fan_out: bool,
+    /// How this suite's group fans out; see [`FanOut`].
+    pub fan_out: FanOut,
     /// True if v2 deliberately ignored this suite (no live group is rendered).
     pub skip: bool,
 }
@@ -272,7 +300,7 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
         if suite.skip {
             return None;
         }
-        if !suite.fan_out {
+        if suite.fan_out == FanOut::None {
             return Some(V2Group::Query {
                 suite_index: i,
                 storage: None,
@@ -283,6 +311,13 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
             Some("S3") => "S3",
             _ => "NVMe",
         };
+        if suite.fan_out == FanOut::Storage {
+            return Some(V2Group::Query {
+                suite_index: i,
+                storage: Some(storage.into()),
+                scale_factor: None,
+            });
+        }
         let dataset_key = suite.dataset_key.unwrap_or(suite.prefix);
         let raw_sf = record
             .dataset
@@ -465,8 +500,8 @@ const V3_FORMATS: &[&str] = &[
 /// classify (so historical analyses stay coherent) but get bucketed
 /// as `Skip::Deprecated` so they don't render as orphan charts in v3.
 ///
-/// `fineweb` is included because `.github/workflows/sql-benchmarks.yml`
-/// still has `fineweb` and `fineweb-s3` matrix entries. `gharchive`
+/// `fineweb` and `appian` are included because `.github/workflows/sql-benchmarks.yml`
+/// still has matrix entries for them (including the s3-storage variants). `gharchive`
 /// stays excluded — it's defined in `vortex-bench` but no current
 /// workflow runs it.
 const V3_QUERY_SUITES: &[&str] = &[
@@ -476,6 +511,7 @@ const V3_QUERY_SUITES: &[&str] = &[
     "statpopgen",
     "polarsignals",
     "fineweb",
+    "appian",
 ];
 
 /// Returns true if every dim that v3 stores as a column is on the

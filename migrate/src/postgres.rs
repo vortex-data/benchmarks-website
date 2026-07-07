@@ -203,16 +203,81 @@ const TABLE_SPECS: &[TableSpec] = &[
     },
 ];
 
-/// Per-table row counts from a completed load.
+/// How [`load`] treats the target's existing rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadMode {
+    /// One-shot empty-seed COPY. Aborts on the first duplicate key, so the target must be
+    /// empty (the original PR-3 contract).
+    Seed,
+    /// `TRUNCATE` every table first, then COPY: an atomic full replace.
+    Replace,
+    /// Additive merge: COPY every table into a temp staging table, then
+    /// `INSERT ... ON CONFLICT DO NOTHING`, optionally deleting a scoped refresh slice
+    /// first. Existing target rows are never modified or removed outside that refresh
+    /// scope. See [`MergeOptions`].
+    Merge(MergeOptions),
+}
+
+/// Options for [`LoadMode::Merge`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeOptions {
+    /// Timestamp accepted by Postgres's `timestamptz` parser (RFC 3339 works). Only rows
+    /// whose commit is STRICTLY OLDER than this are eligible for the refresh delete; rows
+    /// at or after the cutoff are never deleted. Pick the moment the live emitters became
+    /// the target's source of truth (the dual-write go-live).
+    pub cutoff: String,
+    /// `query_measurements.dataset` values whose pre-cutoff rows are deleted inside the
+    /// merge transaction (and then re-inserted from the snapshot). Empty means a purely
+    /// additive merge with no delete at all.
+    pub refresh_datasets: Vec<String>,
+    /// Run the entire merge transaction, report its counts, then ROLL BACK instead of
+    /// committing, leaving the target bit-identical.
+    pub dry_run: bool,
+}
+
+/// Merge-mode extras reported alongside the per-table staged counts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeSummary {
+    /// Rows actually inserted per table (staged rows minus `ON CONFLICT` no-ops).
+    pub inserted: Vec<(&'static str, u64)>,
+    /// Rows removed by the scoped refresh delete on `query_measurements`.
+    pub refresh_deleted: u64,
+    /// True when the transaction was rolled back instead of committed.
+    pub dry_run: bool,
+}
+
+/// Per-table row counts from a completed load. `per_table` counts the rows COPYed from the
+/// snapshot (into the target directly, or into the staging tables for a merge).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadSummary {
     pub per_table: Vec<(&'static str, u64)>,
+    /// `Some` for [`LoadMode::Merge`] loads.
+    pub merge: Option<MergeSummary>,
 }
 
 impl std::fmt::Display for LoadSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (table, rows) in &self.per_table {
-            writeln!(f, "{table}: {rows} rows")?;
+        match &self.merge {
+            None => {
+                for (table, rows) in &self.per_table {
+                    writeln!(f, "{table}: {rows} rows")?;
+                }
+            }
+            Some(merge) => {
+                for ((table, staged), (_, inserted)) in
+                    self.per_table.iter().zip(merge.inserted.iter())
+                {
+                    writeln!(f, "{table}: staged {staged} rows, inserted {inserted}")?;
+                }
+                writeln!(
+                    f,
+                    "refresh delete removed {} query_measurements rows",
+                    merge.refresh_deleted
+                )?;
+                if merge.dry_run {
+                    writeln!(f, "DRY RUN: transaction rolled back, target unchanged")?;
+                }
+            }
         }
         Ok(())
     }
@@ -223,16 +288,18 @@ impl std::fmt::Display for LoadSummary {
 /// TLS connection (the RDS CA for the prod load); when `None` the connection is
 /// plaintext (`NoTls`, the local rehearsal).
 ///
-/// When `replace` is true, every target table is `TRUNCATE`d at the start of the
+/// [`LoadMode::Replace`] `TRUNCATE`s every target table at the start of the
 /// load transaction so the COPYs below replace the existing rows instead of
 /// colliding with their primary keys; this is the data-refresh / re-migration
 /// path (re-seeding an already-populated target). The TRUNCATE runs inside the
 /// same transaction as the COPYs, so a later failure rolls back to the ORIGINAL
 /// data rather than leaving the target empty. `TRUNCATE` requires table
 /// ownership, so the replace path must connect as the table owner (the RDS
-/// master), not the `migrator` role. When `replace` is false the load is the
-/// one-shot empty-seed contract and aborts on the first duplicate
-/// `measurement_id`.
+/// master), not the `migrator` role. [`LoadMode::Seed`] is the one-shot
+/// empty-seed contract and aborts on the first duplicate `measurement_id`.
+/// [`LoadMode::Merge`] COPYs into temp staging tables and inserts with
+/// `ON CONFLICT DO NOTHING`, so existing rows are never modified or removed --
+/// except for the scoped refresh delete described on [`MergeOptions`].
 ///
 /// The target schema must already be applied -- `migrations/001_initial_schema.sql`
 /// plus `006_read_path_perf.sql`, whose denormalized
@@ -243,7 +310,7 @@ pub fn load(
     duckdb_path: &Path,
     dsn: &str,
     ca_cert: Option<&Path>,
-    replace: bool,
+    mode: &LoadMode,
 ) -> Result<LoadSummary> {
     let config = duckdb::Config::default()
         .access_mode(duckdb::AccessMode::ReadOnly)
@@ -267,7 +334,7 @@ pub fn load(
     // existing primary keys. Building the list from `TABLE_SPECS` keeps it in sync
     // with the tables actually loaded; a single `TRUNCATE` covers all six (there is
     // no FK at alpha, so no `CASCADE` is needed).
-    if replace {
+    if matches!(mode, LoadMode::Replace) {
         let tables = TABLE_SPECS
             .iter()
             .map(|spec| spec.name)
@@ -278,11 +345,71 @@ pub fn load(
         info!(tables = %tables, "truncated target tables for replace load");
     }
 
+    // The merge's ONLY destructive statement: drop the refresh datasets' rows for commits
+    // strictly older than the cutoff, so the snapshot's (correctly classified) rows for that
+    // slice can land in their place. The commit-timestamp bound keeps every row written by
+    // the live emitters after the cutoff out of reach. Runs against the PRE-merge `commits`
+    // dim, which is exactly the set of commits whose measurements can exist in the target.
+    let mut refresh_deleted = 0u64;
+    if let LoadMode::Merge(opts) = mode
+        && !opts.refresh_datasets.is_empty()
+    {
+        refresh_deleted = tx
+            .execute(
+                // `$2` is bound as text and cast server-side: binding it directly as
+                // `timestamptz` would require a Rust timestamp type, and Postgres's own
+                // parser is the contract for what cutoff strings are accepted.
+                "DELETE FROM query_measurements
+                  WHERE dataset = ANY($1)
+                    AND commit_sha IN
+                        (SELECT commit_sha FROM commits
+                          WHERE timestamp < ($2::text)::timestamptz)",
+                &[&opts.refresh_datasets, &opts.cutoff],
+            )
+            .context("deleting the scoped refresh slice for the merge load")?;
+        info!(
+            datasets = ?opts.refresh_datasets,
+            cutoff = %opts.cutoff,
+            rows = refresh_deleted,
+            "deleted refresh slice from query_measurements"
+        );
+    }
+
+    let merging = matches!(mode, LoadMode::Merge(_));
     let mut per_table = Vec::with_capacity(TABLE_SPECS.len());
+    let mut inserted = Vec::with_capacity(TABLE_SPECS.len());
     for spec in TABLE_SPECS {
-        let rows = load_table(&duck, &mut tx, spec)?;
-        info!(table = spec.name, rows, "bulk-loaded table");
-        per_table.push((spec.name, rows));
+        if merging {
+            // COPY into a temp staging table, then insert-with-conflict-skip into the real
+            // table. The staging table's name must NOT equal the target's: temp tables
+            // shadow same-named permanent tables in the search path, which would silently
+            // redirect the INSERT back into the staging table.
+            let stage = format!("merge_stage_{}", spec.name);
+            tx.batch_execute(&format!(
+                "CREATE TEMP TABLE {stage} (LIKE {}) ON COMMIT DROP",
+                spec.name
+            ))
+            .with_context(|| format!("creating staging table for {}", spec.name))?;
+            let staged = load_table(&duck, &mut tx, spec, &stage)?;
+            let cols = column_list(spec);
+            let ins = tx
+                .execute(
+                    &format!(
+                        "INSERT INTO {} ({cols}) SELECT {cols} FROM {stage} \
+                         ON CONFLICT DO NOTHING",
+                        spec.name
+                    ),
+                    &[],
+                )
+                .with_context(|| format!("merging staged rows into {}", spec.name))?;
+            info!(table = spec.name, staged, inserted = ins, "merged table");
+            per_table.push((spec.name, staged));
+            inserted.push((spec.name, ins));
+        } else {
+            let rows = load_table(&duck, &mut tx, spec, spec.name)?;
+            info!(table = spec.name, rows, "bulk-loaded table");
+            per_table.push((spec.name, rows));
+        }
     }
 
     // Populate the denormalized `query_measurements.commit_timestamp` (migration
@@ -305,19 +432,36 @@ pub fn load(
         .context("denormalizing commit_timestamp onto query_measurements")?;
     info!(rows = stamped, "denormalized commit_timestamp");
 
-    tx.commit().context("committing the load transaction")?;
-    Ok(LoadSummary { per_table })
+    let merge = match mode {
+        LoadMode::Merge(opts) => Some(MergeSummary {
+            inserted,
+            refresh_deleted,
+            dry_run: opts.dry_run,
+        }),
+        _ => None,
+    };
+
+    if matches!(mode, LoadMode::Merge(opts) if opts.dry_run) {
+        tx.rollback()
+            .context("rolling back the dry-run merge transaction")?;
+        info!("dry run: merge transaction rolled back, target unchanged");
+    } else {
+        tx.commit().context("committing the load transaction")?;
+    }
+    Ok(LoadSummary { per_table, merge })
 }
 
-/// Read one table from DuckDB and COPY it into Postgres within `tx`. Returns the
-/// row count, and fails loud if `COPY` reports a different count than was sent.
+/// Read one table from DuckDB and COPY it into the Postgres table `target` within
+/// `tx` (`target` is the table itself, or its staging table for a merge). Returns
+/// the row count, and fails loud if `COPY` reports a different count than was sent.
 fn load_table(
     duck: &duckdb::Connection,
     tx: &mut postgres::Transaction<'_>,
     spec: &TableSpec,
+    target: &str,
 ) -> Result<u64> {
     let batches = read_batches(duck, spec)?;
-    let copy_sql = format!("COPY {} ({}) FROM STDIN", spec.name, column_list(spec));
+    let copy_sql = format!("COPY {target} ({}) FROM STDIN", column_list(spec));
     let mut writer = tx
         .copy_in(copy_sql.as_str())
         .with_context(|| format!("starting COPY into {}", spec.name))?;
