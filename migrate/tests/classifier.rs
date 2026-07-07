@@ -404,12 +404,63 @@ fn gharchive_q00_is_deprecated() {
     ));
 }
 
+#[rstest]
+#[case::fineweb_no_storage("fineweb_q00/datafusion:parquet", None, "fineweb", 0, "nvme")]
+#[case::fineweb_nvme("fineweb_q03/duckdb:parquet", Some("nvme"), "fineweb", 3, "nvme")]
+#[case::fineweb_s3("fineweb_q00/datafusion:parquet", Some("s3"), "fineweb", 0, "s3")]
+#[case::appian_nvme("appian_q01/datafusion:parquet", Some("nvme"), "appian", 1, "nvme")]
+#[case::appian_s3("appian_q02/duckdb:vortex-compact", Some("s3"), "appian", 2, "s3")]
+fn storage_fan_out_query_records(
+    #[case] name: &str,
+    #[case] storage: Option<&str>,
+    #[case] dataset: &str,
+    #[case] query_idx: i32,
+    #[case] expected_storage: &str,
+) {
+    // fineweb and appian fan out by storage only: `record.storage` maps to the
+    // lowercase `storage` dim, and `scale_factor`/`dataset_variant` stay `None`
+    // so the read path renders `fineweb [s3]` / `appian [nvme]` with no ` sf=`
+    // segment, matching the dims the live v3 emitter writes.
+    let mut r = record(name);
+    r.storage = storage.map(Into::into);
+    assert_eq!(
+        classify(&r),
+        Some(V3Bin::Query {
+            dataset: dataset.into(),
+            dataset_variant: None,
+            scale_factor: None,
+            query_idx,
+            storage: expected_storage.into(),
+            engine: name
+                .split('/')
+                .nth(1)
+                .unwrap()
+                .split(':')
+                .next()
+                .unwrap()
+                .into(),
+            format: name.split(':').nth(1).unwrap().into(),
+        })
+    );
+}
+
 #[test]
 fn fineweb_q00_classifies() {
     // fineweb is on V3_QUERY_SUITES (still emitted by v3 CI per
     // .github/workflows/sql-benchmarks.yml's `fineweb` matrix entry),
     // so historical fineweb records ingest like any other suite.
     let r = record("fineweb_q00/datafusion:parquet");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Bin(V3Bin::Query { .. })
+    ));
+}
+
+#[test]
+fn appian_q01_classifies() {
+    // appian postdates v2's QUERY_SUITES; the added entry means its dump
+    // records migrate instead of counting toward the 5% uncategorized gate.
+    let r = record("appian_q01/datafusion:parquet");
     assert!(matches!(
         classify_outcome(&r),
         Outcome::Bin(V3Bin::Query { .. })
