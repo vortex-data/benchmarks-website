@@ -5,15 +5,17 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # AGENTS.md - `benchmarks-website/`
 
-Read [`README.md`](README.md) first for the architecture and the v3/v4
-side-by-side situation. Then this file. The root [`CLAUDE.md`](../CLAUDE.md)
-covers Rust style, test layout, commit conventions.
+Read [`README.md`](README.md) first for the architecture. Then this file. The
+root [`CLAUDE.md`](../CLAUDE.md) covers Rust style, test layout, commit
+conventions. Everything about the legacy generations (v2, v3) is in
+[`docs/legacy.md`](docs/legacy.md).
 
 ## The legacy v2 site
 
-The v2 Vite/React site is still live at `bench.vortex.dev` but is deployed from
-elsewhere — its source no longer lives in this repo. The migrator still reads
-the v2 S3 dump as its historical source (see [`migrate/README.md`](migrate/README.md)).
+The v2 Vite/React site is retired from serving (`bench.vortex.dev` now points at
+v4) and was deployed from elsewhere — its source never lived in this repo. The
+migrator still reads the v2 S3 dump as its historical source (see
+[`migrate/README.md`](migrate/README.md)).
 
 The v3 deploy lives entirely under `server/`, `migrate/`, and `ops/`.
 The operator runbook is [`ops/README.md`](ops/README.md).

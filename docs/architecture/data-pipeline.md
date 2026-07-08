@@ -114,10 +114,10 @@ mirroring the server-internal hash — still never a wire field. Every v4 step i
 `continue-on-error` and gated on a configured role ARN, so it is additive and
 never blocks Path A.
 
-> **Status:** Path B is not yet wired up for the live v4 deployment — the emitter
-> still targets v2/v3. Until the emitter cutover, v4's data is refreshed by the
-> migrator (below). This is why `BENCH_REVALIDATE_TOKEN` is intentionally not yet
-> set on the v4 Vercel project.
+> **Status:** Path B is live — it feeds the production v4 deployment at
+> `bench.vortex.dev`. Its CI steps remain `continue-on-error` while Path A is
+> still the hard-required target; they should be promoted to required when v3 is
+> retired (see [`../legacy.md`](../legacy.md)).
 
 ## Storage by generation
 
