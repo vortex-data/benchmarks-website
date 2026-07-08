@@ -50,7 +50,13 @@ export default async function Home({
   return (
     <>
       <Header universe={universe} initialEngines={initialEngines} initialFormats={initialFormats} />
-      <GroupNav groups={groups.map((group) => ({ name: group.name, slug: group.slug }))} />
+      <GroupNav
+        groups={groups.map((group, i) => ({
+          name: group.name,
+          slug: group.slug,
+          anchor: anchors[i],
+        }))}
+      />
       <main>
         {groups.length === 0 ? (
           <p className="empty">No data ingested yet.</p>

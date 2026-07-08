@@ -6,12 +6,15 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * A group entry for the jump menu: its display name and the `data-group-slug`
- * carried by its landing-page `<section>` (see [`GroupSection`]).
+ * A group entry for the jump menu: its display name, the `data-group-slug`
+ * carried by its landing-page `<section>` (see [`GroupSection`]), and the
+ * readable permalink anchor (`lib/anchor.ts`) that section carries as its
+ * `id` — mirrored into the address bar when the entry is clicked.
  */
 export interface GroupNavItem {
   name: string;
   slug: string;
+  anchor: string;
 }
 
 /**
@@ -82,7 +85,8 @@ export function jumpToLocationHash(doc: Document = document): boolean {
 /**
  * A left-side "Jump to group" menu: a fixed toggle button that opens a panel
  * listing every group, each a button that expands and scrolls to that group's
- * section (via [`jumpToGroup`]) and then closes the panel.
+ * section (via [`jumpToGroup`]), mirrors the group's permalink anchor into
+ * the address bar, and then closes the panel.
  *
  * Also hosts the hash-jump effect: on mount and on every later `hashchange`,
  * [`jumpToLocationHash`] expands and scrolls to the group a `/#<slug>`
@@ -168,7 +172,14 @@ export function GroupNav({ groups }: { groups: GroupNavItem[] }) {
                 className="group-nav-link"
                 type="button"
                 onClick={() => {
-                  jumpToGroup(group.slug);
+                  // Mirror the group's anchor into the address bar so a jump
+                  // leaves a shareable URL, exactly like the header copy-link
+                  // button. replaceState (not `location.hash =`) avoids firing
+                  // `hashchange`, which would re-trigger the hash-jump effect
+                  // and double-scroll.
+                  if (jumpToGroup(group.slug)) {
+                    window.history.replaceState(null, '', `#${encodeURIComponent(group.anchor)}`);
+                  }
                   setOpen(false);
                 }}
               >
