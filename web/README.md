@@ -1,9 +1,9 @@
 # Benchmarks web (v4 read service)
 
-Next.js 15 (App Router) read service for `benchmarks.vortex.dev`, serving the benchmark charts
-from the benchmarks Postgres database. This is the v4 frontend that replaces both the v2
-Vite/React SPA (`../../src/`) and the v3 Axum server (`../server/`) at the Phase-5 cutover; until
-then it runs behind a dev-only Vercel domain.
+Next.js 15 (App Router) read service serving the benchmark charts at
+[bench.vortex.dev](https://bench.vortex.dev) from the benchmarks Postgres database. This is the
+v4 frontend that replaced both the v2 Vite/React SPA and the v3 Axum server (`../server/`) — see
+[`../docs/legacy.md`](../docs/legacy.md).
 
 ## Local development
 

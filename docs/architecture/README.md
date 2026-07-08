@@ -35,8 +35,9 @@ Benchmark jobs in the [`vortex-data/vortex`](https://github.com/vortex-data/vort
 monorepo emit per-commit measurements. Those measurements land in a database, and
 a web app renders them as time-series charts — one chart per `(benchmark, dataset,
 …)` dimension tuple, with the x-axis being the Vortex commit history. The site has
-been rebuilt twice; **all three generations live side-by-side in this repo** while
-the cutover finishes.
+been rebuilt twice; **v4 is live production** at `bench.vortex.dev`, and the two
+previous generations survive only until their teardown finishes (see
+[`../legacy.md`](../legacy.md)).
 
 ## The three generations
 
@@ -56,15 +57,15 @@ the cutover finishes.
    on Cloudflare    on an EC2 host           (server components)
         │                │                         │
         ▼                ▼                         ▼
-   bench.vortex.dev   (experimental)      benchmarks-website.vercel.app
-   ★ LIVE today        emit target only     ★ the forward stack
+   (retired from     (experimental)          bench.vortex.dev
+    serving)          emit target only        ★ LIVE production
 ```
 
-| Gen | Stack | Storage | Status (2026-06-18) |
+| Gen | Stack | Storage | Status (2026-07-08) |
 |---|---|---|---|
-| **v2** | Node `server.js` + Vite/React SPA, on Cloudflare | A static `data.json.gz` dump in public S3, aggregated in memory at read time | **Live production** at `bench.vortex.dev`. To be retired after the v4 cutover. |
+| **v2** | Node `server.js` + Vite/React SPA, on Cloudflare | A static `data.json.gz` dump in public S3, aggregated in memory at read time | Retired from serving; its S3 dump still receives CI uploads. To be torn down. |
 | **v3** | `vortex-bench-server` (Rust, `axum` + `maud`), on an EC2 host | DuckDB file on local disk | Experimental. Still receives emit data; not user-facing. To be decommissioned. |
-| **v4** | `web/` (Next.js App Router) on Vercel | AWS RDS Postgres | **Live** at `benchmarks-website.vercel.app`; `develop` = production. The target the others cut over to. |
+| **v4** | `web/` (Next.js App Router) on Vercel | AWS RDS Postgres | **Live production** at `bench.vortex.dev`; `develop` = production. |
 
 Why three? Each generation traded the previous one's main weakness:
 
@@ -84,18 +85,20 @@ that carried the full benchmark history v2 → v3 → v4 without losing a row �
 
 The decoupling from the monorepo is **complete** (PR #1 merged to `develop`):
 standalone Cargo workspace, standalone CI, Vercel deploy, schema deploy via OIDC,
-and secrets are all in this repo. v4 is live and serving the full history.
+and secrets are all in this repo. The cutover itself is also complete: monorepo CI
+writes each run directly to RDS (the v4 ingest path — direct Postgres write plus
+`POST /api/revalidate`; see
+[`../runbooks/emitter-ingest-cutover.md`](../runbooks/emitter-ingest-cutover.md)),
+and `bench.vortex.dev` is served by the v4 Vercel deployment.
 
-Remaining cutover steps (deliberately deferred — make v4 good first):
+Remaining teardown steps:
 
-1. **Emitter/ingest cutover** — point the monorepo emitters at the v4 ingest path
-   (direct RDS write + `POST /api/revalidate`) instead of the v2 S3 dump / v3 server.
-   Full plan, spanning both repos, in
-   [`../runbooks/emitter-ingest-cutover.md`](../runbooks/emitter-ingest-cutover.md).
-2. **DNS cutover** — repoint `bench.vortex.dev` at v4 and make the Vercel
-   deployment protection public.
-3. **Decommission v2 and v3** once nothing depends on them.
+1. **Promote the v4 ingest steps to required** — they are still
+   `continue-on-error: true` in monorepo CI while v3 remains the hard-required
+   emit target.
+2. **Decommission v2 and v3** once nothing depends on them. The inventory is in
+   [`../legacy.md`](../legacy.md).
 
-Until then, v4 data is refreshed by re-running `vortex-bench-migrate` against the
-v2 dump (see the [data-pipeline](data-pipeline.md) doc and
+Independent of live ingest, `vortex-bench-migrate` remains the backfill and
+atomic full-refresh path (see the [data-pipeline](data-pipeline.md) doc and
 [`../../migrate/README.md`](../../migrate/README.md)).

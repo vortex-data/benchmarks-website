@@ -76,10 +76,9 @@ fires. The endpoint **fails closed** — a missing `BENCH_REVALIDATE_TOKEN` retu
 `503`, never silently accepting an unauthenticated flush; the token compare is
 constant-time.
 
-> Because the live deployment is currently fed by the *migrator* (not the ingest
-> hook), a data refresh does not call `/api/revalidate`. In practice the cold/
-> expired Data Cache entries simply refill from the fresh RDS on the next read.
-> When the emitter cutover lands, the hook becomes the freshness driver.
+> One caveat: a *migrator* backfill or full refresh (as opposed to a CI ingest)
+> does not call `/api/revalidate`, so after one the cold/expired Data Cache
+> entries simply refill from the fresh RDS on the next read.
 
 ### Read API and windows
 
