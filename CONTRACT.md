@@ -3,97 +3,49 @@ SPDX-License-Identifier: Apache-2.0
 SPDX-FileCopyrightText: Copyright the Vortex contributors
 -->
 
-# Benchmark emitter → ingester contract
+# Benchmark emitter → ingest contract
 
 This document is the versioned contract between the benchmark **emitters** (which run in
-the `vortex-data/vortex` monorepo) and the **ingesters** in this repository. It is
+the `vortex-data/vortex` monorepo) and the **storage + read service** in this repository. It is
 anchored to `SCHEMA_VERSION` (currently **`1`**). The emitters are owned by the monorepo
-and are unchanged by this repository; this repo owns the ingest *contract* and the read
-service.
+and are unchanged by this repository; this repo owns the ingest *contract*, the schema, and the
+read service.
 
-> **Scope.** There are two ingest paths, both driven by the monorepo's
-> `scripts/post-ingest.py`. The **v3** path (`POST /api/ingest` into the Rust read
-> service) is the current, hard-required path. The **v4** path (a direct Postgres
-> dual-write plus a cache-revalidation ping) is the forward path and is best-effort. Both
-> are documented here; the wire/record shapes are identical across them because both
-> originate from the same emitter output.
+> **Scope.** There is one ingest path: the monorepo's `scripts/post-ingest.py --postgres` writes
+> emitter records directly into the hosted RDS Postgres and then pings this repo's read service
+> to flush its cache. The retired v3 HTTP ingest path (`POST /api/ingest` into a Rust server) is
+> described in [`docs/legacy.md`](docs/legacy.md); the record shapes on the wire are unchanged
+> from that era, which is why the producer flag is still spelled `--gh-json-v3`.
 
 ## Versioning: `SCHEMA_VERSION`
 
-`SCHEMA_VERSION` is a single integer that gates every ingest. The ingest envelope carries
-`run_meta.schema_version`; the read service rejects any mismatch (see the HTTP matrix
-below). Bumping it is a coordinated, multi-site change.
+`SCHEMA_VERSION` is a single integer that keeps the producer wire shape and the reader in
+lockstep. Bumping it is a coordinated, multi-site change.
 
-### In-repo anchors (testable here)
-
-These two constants live in THIS repository and MUST agree. The consistency check in
-`web/lib/schema-version.test.ts` asserts this automatically — it reads `server/src/schema.rs`
-and this doc and compares both against the TS const.
+### In-repo anchor (testable here)
 
 | Anchor | File | Form |
 |---|---|---|
-| Source of truth | `server/src/schema.rs` | `pub const SCHEMA_VERSION: i32 = 1;` |
-| Read-service (web) mirror | `web/lib/schema-version.ts` | `export const SCHEMA_VERSION = 1;` |
+| Source of truth | `web/lib/schema-version.ts` | `export const SCHEMA_VERSION = 1;` |
+
+The consistency check in `web/lib/schema-version.test.ts` asserts this file and the anchor
+quoted in this document agree automatically.
 
 ### Cross-repo sites (documented, NOT testable from this repo)
 
 These live in the `vortex-data/vortex` monorepo and cannot be verified by this repo's CI.
-A `SCHEMA_VERSION` bump must be coordinated with them in the same logical change, or every
-CI ingest run will fail (see the HTTP matrix):
+A `SCHEMA_VERSION` bump must be coordinated with them in the same logical change:
 
 | Site | Role |
 |---|---|
 | `vortex-bench/src/v3.rs` (the `--gh-json-v3` emitter) | Producer-side wire-shape source of truth |
-| `scripts/post-ingest.py` | CI ingest wrapper; fills `run_meta.schema_version` from a hardcoded Python literal that must equal the value above |
+| `scripts/post-ingest.py` | CI ingest writer; hardcodes the version as a Python literal that must equal the value above |
 
-> Note: `migrate/src/lib.rs` is **not** a `SCHEMA_VERSION` anchor — it has no such const.
-> Older comments that listed it as a lockstep site were stale and have been corrected.
+## The wire format: JSONL of bare records
 
-## Path A — v3 `POST /api/ingest` (current, hard-required)
-
-The monorepo emitter `vortex-bench --gh-json-v3 <path>` writes **JSONL of bare records
-only**. The monorepo's `scripts/post-ingest.py --server $V3_INGEST_URL` wraps that output
-in an envelope (adding `run_meta` + `commit`, filled from `${{ github.sha }}` and
-`git show`) and POSTs it.
-
-- **Endpoint:** `POST {V3_INGEST_URL}/api/ingest`
-- **Auth:** `Authorization: Bearer $INGEST_BEARER_TOKEN`
-- **Body:** one `Envelope` per request (JSON). Defined in `server/src/records.rs`; every
-  struct is `#[serde(deny_unknown_fields)]`, so unknown fields fail loudly.
-
-### Envelope shape
-
-```jsonc
-{
-  "run_meta": {
-    "benchmark_id": "bench.yml@<run_id>",   // free-form producing-run id
-    "schema_version": 1,                     // MUST equal the server's SCHEMA_VERSION
-    "started_at": "2026-06-18T12:00:00Z"     // RFC 3339 timestamp
-  },
-  "commit": {
-    "sha": "<40-hex lowercase>",             // wire name `sha`; stored as commit_sha
-    "timestamp": "2026-06-18T11:59:00Z",     // RFC 3339 / ISO 8601
-    "message": "<full commit message>",      // server renders only the first line
-    "author_name": "...",
-    "author_email": "...",
-    "committer_name": "...",
-    "committer_email": "...",
-    "tree_sha": "<git tree sha>",
-    "url": "<github commit url>"             // click-through fallback
-  },
-  "records": [ /* heterogeneous batch, discriminated by `kind` (see below) */ ]
-}
-```
-
-The server upserts the `commit` row (`ON CONFLICT (commit_sha) DO UPDATE`) before applying
-any record. Every record's `commit_sha` MUST equal the envelope's `commit.sha`, or the
-batch is rejected.
-
-### Records: discriminated by `kind`
-
-`records` is a heterogeneous array; serde discriminates with
-`#[serde(tag = "kind", rename_all = "snake_case")]`. The five kinds and their destination
-fact tables:
+The monorepo emitter `vortex-bench --gh-json-v3 <path>` writes **JSONL of bare records only** —
+one JSON object per line, no envelope. `records` are discriminated by a `kind` field
+(snake_case). The five kinds and their destination fact tables:
 
 | `kind`               | Destination table     |
 |----------------------|-----------------------|
@@ -103,66 +55,44 @@ fact tables:
 | `random_access_time` | `random_access_times` |
 | `vector_search_run`  | `vector_search_runs`  |
 
-Each record's fields are defined in `server/src/records.rs` and match the column names of
-its fact table (see `server/src/schema.rs` for the DDL). Records are
-`#[serde(deny_unknown_fields)]`; an unknown `kind` or unknown field is a `400`.
+Each record's fields are defined by the producer structs in the monorepo's
+`vortex-bench/src/v3.rs` and match the column names of its fact table (see
+[`migrations/`](migrations/) for the DDL). `scripts/post-ingest.py` validates and maps them
+column-by-column; an unknown `kind` or a missing dimension field fails the ingest run.
 
-> **`measurement_id` is never on the wire.** It is a server-internal deterministic hash
-> over `commit_sha` + the record's dimension tuple, computed in `server/src/db.rs` just
-> before INSERT and used as the primary key for the `ON CONFLICT … DO UPDATE` upsert.
-> Emitters do not (and must not) send it; the migrator copies it verbatim and never
-> recomputes it.
+> **`measurement_id` is never on the wire.** It is a deterministic hash over `commit_sha` + the
+> record's dimension tuple, computed by the ingest writer just before INSERT and used as the
+> primary key for the `ON CONFLICT … DO UPDATE` upsert. Emitters do not (and must not) send it.
 
-### HTTP response matrix (`server/src/ingest.rs`)
+## The ingest path — direct Postgres write + cache revalidate
 
-| Condition | Status |
-|---|---|
-| Happy path | `200` with `{ "inserted": N, "updated": M }` |
-| Malformed JSON, an unknown field (envelope **or** record level), or an unknown record `kind` | `400`, body `{ "error": "malformed", … }` — **no** `record_index` (these fail during envelope deserialization, before the per-record loop runs) |
-| A per-record validation failure (e.g. invalid `storage`, partially-populated memory fields), or a record whose `commit_sha` ≠ the envelope's `commit.sha` | `400`, body `{ "error": "record", "record_index": N, … }` |
-| Missing or invalid bearer token | `401`, body `{ "error": "unauthorized" }` |
-| `schema_version` **newer** than the server expects | `409`, body `{ "error": "schema_version_too_new", … }` |
-| `schema_version` **older** than the server expects | `400` (the malformed path — `{ "error": "malformed", … }`, no `record_index`) |
-| Other server error | `500`, body `{ "error": "internal" }` |
+The monorepo's `scripts/post-ingest.py --postgres` runs in benchmark CI (required, not
+best-effort — a failure fails the bench job and alerts):
 
-Ingest is **all-or-nothing**: a single failed record rolls back the whole batch
-(one DuckDB transaction). `inserted`/`updated` aggregate across all five fact tables;
-`updated` counts rows that hit `ON CONFLICT (measurement_id) DO UPDATE`.
-
-## Path B — v4 direct-Postgres dual-write (forward, best-effort)
-
-The monorepo's `scripts/post-ingest.py --postgres` writes the same records directly to the
-hosted RDS Postgres, then optionally pings this repo's Next.js read service to flush its
-cache. Every v4 step is `continue-on-error: true` and gated on
-`vars.GH_BENCH_INGEST_ROLE_ARN != ''`, so it is additive and never blocks the v3 path.
-
-1. **Direct write:** `INSERT … ON CONFLICT (measurement_id) DO UPDATE` into RDS as the
+1. **Commit upsert:** the writer builds the commit row from `git show` and upserts it
+   (`ON CONFLICT (commit_sha) DO UPDATE`) before applying any record.
+2. **Direct write:** `INSERT … ON CONFLICT (measurement_id) DO UPDATE` into RDS as the
    least-privilege `bench_ingest` IAM role (IAM auth, `sslmode=verify-full`), against the
-   schema in this repo's `migrations/`. `measurement_id` is computed locally by the script,
-   mirroring the server-internal hash — still never a wire field on Path A.
-2. **Revalidate ping:** `POST {BENCH_SITE_BASE_URL}/api/revalidate` with
+   schema in this repo's `migrations/`. Each JSONL file applies in one transaction.
+3. **Revalidate ping:** `POST {BENCH_SITE_BASE_URL}/api/revalidate` with
    `Authorization: Bearer $BENCH_REVALIDATE_TOKEN`, to flush the Next.js Data Cache so the
    next read recomputes against freshly written data.
 
-### `measurement_id` parity: the byte-exact cross-language contract
+### `measurement_id`: the frozen hash contract
 
-Path A computes `measurement_id` in the server, on the ingest path; Path B has no server in
-the loop, so the CI emitter computes it itself, in Python, before the `INSERT`. The two
-implementations are a **byte-for-byte contract**: the monorepo's port
-(`scripts/_measurement_id.py`, an `xxhash` XXH64 / seed-0 port) must reproduce the Rust
-reference in `server/src/db.rs` exactly — the per-table tag separators, the length-prefixed
-string framing, the optional / `i32` / `f64`-as-bits encodings, and the signed-`i64` finish.
-Drift does not error; it yields a *different* key for the same measurement, which silently
-duplicates or collides rows instead of upserting. Parity is therefore a load-bearing
-correctness property, not a nicety.
+`measurement_id` is an xxhash64 (seed 0) over a canonical byte encoding of the dimension tuple —
+per-table tag separators, length-prefixed string framing, optional / `i32` / `f64`-as-bits
+encodings, and a signed-`i64` finish. It is implemented once, in the monorepo's
+`scripts/_measurement_id.py`. Its output is **frozen forever**: every fact row already in
+production is keyed by it, so drift does not error — it yields a *different* key for the same
+measurement, which silently duplicates or collides rows instead of upserting.
 
-That parity is pinned by golden vectors, not by trust. `scripts/measurement_id_golden.json`
-in THIS repo is the source of truth — a Rust-generated set of `(input → hash)` cases covering
-empty/Unicode strings, `i32` bounds, and `f64` edges (NaN/Inf are rejected, never hashed). It
-is regenerated only from the Rust side
-(`REGEN_GOLDEN_VECTORS=1 cargo test -p vortex-bench-server --test measurement_id_golden`) and
-**never hand-edited**; the monorepo's `scripts/test_measurement_id.py` asserts every vector
-byte-for-byte as a required CI check. The golden vectors ARE the contract.
+The freeze is pinned by golden vectors, not by trust. The monorepo's
+`scripts/measurement_id_golden.json` holds `(input → hash)` cases covering empty/Unicode
+strings, `i32` bounds, and `f64` edges, generated by the original Rust implementation (the
+retired v3 server, which wrote the production rows) and **never regenerated**; the monorepo's
+`scripts/tests/test_measurement_id.py` asserts every vector byte-for-byte in CI. The golden
+vectors ARE the contract.
 
 ### `POST /api/revalidate` (`web/app/api/revalidate/route.ts`)
 
@@ -180,10 +110,10 @@ byte-for-byte as a required CI check. The golden vectors ARE the contract.
 A version bump or wire-shape change is a coordinated change across BOTH repos in one
 logical change:
 
-1. **This repo:** `server/src/schema.rs` (`SCHEMA_VERSION`) and `web/lib/schema-version.ts`.
+1. **This repo:** `web/lib/schema-version.ts` (and the schema in `migrations/` if columns
+   change).
 2. **Monorepo:** `vortex-bench/src/v3.rs` (the producer wire shape) and
-   `scripts/post-ingest.py` (the hardcoded literal).
+   `scripts/post-ingest.py` (the hardcoded literal plus its column mapping).
 
-A mismatch makes the v3 ingest return `409` (server older than producer) or `400` (server
-newer than producer) on every CI run until the lagging site catches up. For wire/record
-*shape* changes, also update the snapshot fixtures in the same commit.
+For wire/record *shape* changes, also update the producer snapshot fixtures in the monorepo in
+the same commit.

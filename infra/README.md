@@ -7,7 +7,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 AWS infrastructure for the v4 benchmarks-website (RDS Postgres + RDS Proxy + GitHub Actions OIDC). One-shot bootstrap, idempotent re-run, fully scripted.
 
-This directory is created in PR-1.1 and lives until Phase 5; the v3 ops at `benchmarks-website/ops/` is decommissioned separately. The Vercel reader's deploy hooks live with the Next.js app at `benchmarks-website/web/` (created in PR-4.1) and not here.
+This directory provisions the live v4 stack (the v3 ops tree it once sat beside is decommissioned and deleted). The Vercel reader's deploy hooks live with the Next.js app at `benchmarks-website/web/` and not here.
 
 ## What `provision.sh` builds
 

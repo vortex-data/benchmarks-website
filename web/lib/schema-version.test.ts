@@ -8,12 +8,13 @@ import { describe, expect, it } from 'vitest';
 
 import { SCHEMA_VERSION } from './schema-version';
 
-// Anchored declarations for the in-repo SCHEMA_VERSION lockstep sites. The
-// canonical contract lives in `CONTRACT.md`; these tests read the real anchor
-// files at test time and assert they all agree with the TS `SCHEMA_VERSION`
-// const, so drift between any anchor fails web-ci loudly instead of only
-// surfacing at ingest as a 400/409.
-const RUST_DECL = /pub const SCHEMA_VERSION: i32 = (\d+);/;
+// Anchored declaration for the in-repo SCHEMA_VERSION lockstep site. The
+// canonical contract lives in `CONTRACT.md`; this test reads the doc at test
+// time and asserts its quoted anchor agrees with the TS `SCHEMA_VERSION`
+// const, so drift between the doc and the code fails web-ci loudly instead of
+// only surfacing at ingest. The cross-repo sites (the monorepo's
+// `vortex-bench/src/v3.rs` and `scripts/post-ingest.py`) are documented in
+// CONTRACT.md but cannot be verified from this repo.
 const TS_DECL = /export const SCHEMA_VERSION = (\d+);/;
 
 /**
@@ -37,35 +38,20 @@ function versionFromFile(relPath: string, regex: RegExp, label: string): number 
 
 describe('SCHEMA_VERSION', () => {
   it('is pinned to the canonical value 1', () => {
-    // Canary: a deliberate version bump must also update this line (and every
+    // Canary: a deliberate version bump must also update this line (and the
     // anchor below), so an accidental cross-anchor bump cannot pass silently.
     expect(SCHEMA_VERSION).toBe(1);
   });
 
-  it('matches server/src/schema.rs (the Rust source of truth)', () => {
-    const rustVersion = versionFromFile(
-      '../../server/src/schema.rs',
-      RUST_DECL,
-      'server/src/schema.rs',
-    );
-    expect(rustVersion).toBe(SCHEMA_VERSION);
-  });
-
-  it('matches the anchor declarations documented in CONTRACT.md', () => {
-    const docRustVersion = versionFromFile(
-      '../../CONTRACT.md',
-      RUST_DECL,
-      'CONTRACT.md (Rust anchor row)',
-    );
+  it('matches the anchor declaration documented in CONTRACT.md', () => {
     const docTsVersion = versionFromFile(
       '../../CONTRACT.md',
       TS_DECL,
       'CONTRACT.md (TS anchor row)',
     );
-    // CONTRACT.md's anchors table quotes both declarations verbatim; both must
-    // agree with the live TS const (and therefore with schema.rs via the test
-    // above), so a doc that drifts from the code fails here.
-    expect(docRustVersion).toBe(SCHEMA_VERSION);
+    // CONTRACT.md's anchor table quotes the declaration verbatim; it must
+    // agree with the live TS const, so a doc that drifts from the code fails
+    // here.
     expect(docTsVersion).toBe(SCHEMA_VERSION);
   });
 });

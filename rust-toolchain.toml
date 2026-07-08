@@ -1,7 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-[toolchain]
-channel = "1.91.0"
-components = ["rust-src", "rustfmt", "clippy", "rust-analyzer"]
-profile = "minimal"

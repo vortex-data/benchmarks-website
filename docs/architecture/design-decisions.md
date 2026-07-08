@@ -10,6 +10,11 @@ reasoning behind them. Each entry is "decision → why → where." Topic docs
 ([data-pipeline](data-pipeline.md), [read-path](read-path.md),
 [deploy-and-infra](deploy-and-infra.md)) carry the fuller context.
 
+> **Note on paths.** This log spans all three generations. "Where" pointers under
+> `server/`, `migrate/`, and `ops/` refer to the v3 tree, which was deleted after
+> the v3 decommission (see [`../legacy.md`](../legacy.md)) — find those files in
+> git history. The decisions themselves still shape the live system.
+
 ## Data model
 
 **One fact table per measurement family (not one wide table).**
@@ -19,26 +24,28 @@ multiple rows that then need re-joining. Five focused tables keep each row dense
 and each chart query a single-table scan.
 → `migrations/001_initial_schema.sql`, `server/src/schema.rs`.
 
-**`measurement_id` is a server-internal deterministic hash, never on the wire.**
+**`measurement_id` is an ingest-internal deterministic hash, never on the wire.**
 Hashing `commit_sha` + the dimension tuple makes the upsert automatic: re-emitting
 the same measurement hits `ON CONFLICT (measurement_id) DO UPDATE` instead of
-duplicating. Keeping it off the wire means the hash layout is private — it can
-change without a coordinated producer release. Emitters never send it; the server
-computes it just before INSERT.
-→ `server/src/db.rs`, `CONTRACT.md`.
+duplicating. Keeping it off the wire kept the hash layout private while it had two
+implementations; now that every production row is keyed by it, the layout is
+frozen outright. Emitters never send it; the ingest writer computes it just before
+INSERT.
+→ `server/src/db.rs` (original), the monorepo's `scripts/_measurement_id.py`
+(current), `CONTRACT.md`.
 
 **v4 computes `measurement_id` client-side, guarded by a golden-vector contract.**
-v3 computed the hash in the server, on the ingest path. v4's dual-write goes
-straight from CI to managed Postgres with no server in the loop, so the emitter
-computes the hash itself — which takes the always-on ingest service off the write
-path (the server's only remaining ingest role is the best-effort cache flush). The
-cost is a second implementation of the hash, in Python, that must match the Rust
-reference byte-for-byte: any drift silently writes a *different* upsert key and
-duplicates rows rather than erroring. That cost is bought back with a Rust-generated
-golden-vector file (`scripts/measurement_id_golden.json`, owned by this repo) that
-the monorepo's port asserts byte-for-byte as a required CI check — the vectors, not
+v3 computed the hash in the server, on the ingest path. v4's ingest goes straight
+from CI to managed Postgres with no server in the loop, so the writer computes the
+hash itself — which takes the always-on ingest service off the write path
+entirely. The cost was a second implementation of the hash, in Python, that had to
+match the Rust reference byte-for-byte: any drift silently writes a *different*
+upsert key and duplicates rows rather than erroring. That cost is bought back with
+a Rust-generated golden-vector file (now the monorepo's
+`scripts/measurement_id_golden.json`, frozen forever since the Rust reference was
+deleted) that the Python writer asserts byte-for-byte in CI — the vectors, not
 trust, are the contract.
-→ `server/src/db.rs`, `server/tests/measurement_id_golden.rs`, `CONTRACT.md`.
+→ the monorepo's `scripts/tests/test_measurement_id.py`, `CONTRACT.md`.
 
 **The migrator copies `measurement_id` verbatim — never recomputes it.**
 The whole point of the v2→v3→v4 migration is fidelity. If the migrator

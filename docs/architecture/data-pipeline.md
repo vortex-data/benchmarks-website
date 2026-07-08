@@ -8,9 +8,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 How a benchmark measurement travels from a CI run to a row in the database, and
 how the full history was carried across the three storage generations.
 
-See also: the wire contract [`../../CONTRACT.md`](../../CONTRACT.md), the migrator
-[`../../migrate/README.md`](../../migrate/README.md), and the SQL schema under
-[`../../migrations/`](../../migrations/).
+See also: the wire contract [`../../CONTRACT.md`](../../CONTRACT.md) and the SQL
+schema under [`../../migrations/`](../../migrations/). (The migrator's own
+`migrate/README.md` was deleted with the v3 tree; see git history.)
 
 ## Producers: the emitters
 
@@ -20,9 +20,8 @@ read services, not the producers. A run does two things:
 
 1. `vortex-bench --gh-json-v3 <path>` writes **JSONL of bare records** — one line
    per measurement, discriminated by a `kind` field.
-2. `scripts/post-ingest.py` wraps that output in an envelope (adding `run_meta`
-   and the `commit` block, filled from `${{ github.sha }}` and `git show`) and
-   delivers it.
+2. `scripts/post-ingest.py --postgres` builds the commit row (from
+   `${{ github.sha }}` and `git show`) and writes the records directly to RDS.
 
 Because every generation's data originates from the same emitter output, the
 record shapes are identical across them. That shared shape is what made the
@@ -42,9 +41,7 @@ Every measurement is one of **five kinds**, each routed to its own fact table:
 
 Plus one **dimension table**, `commits`, keyed by `commit_sha` (40-hex), carrying
 the commit timestamp, message, author/committer, tree SHA and URL. The commit row
-is upserted (`ON CONFLICT (commit_sha) DO UPDATE`) before any fact rows; every
-fact record's `commit_sha` must equal the envelope's `commit.sha` or the whole
-batch is rejected.
+is upserted (`ON CONFLICT (commit_sha) DO UPDATE`) before any fact rows.
 
 **One fact table per dimension shape** (rather than one wide table) is deliberate:
 the families have genuinely different dimensions, so a single table would bloat
@@ -58,66 +55,44 @@ Each fact row's primary key is `measurement_id`, a **deterministic hash over
 
 - It is the key for the `ON CONFLICT (measurement_id) DO UPDATE` upsert, so
   re-emitting the same `(commit, dims)` updates the row instead of duplicating it.
-  On the v3 path the server computes it just before INSERT (`server/src/db.rs`); on
-  the v4 path the CI emitter computes the identical hash itself, with no server in
-  the loop. The two implementations are held byte-identical by a golden-vector
-  contract — see [`CONTRACT.md`](../../CONTRACT.md) and
+  The CI ingest writer computes the hash itself, with no server in the loop
+  (the monorepo's `scripts/_measurement_id.py`, originally a byte-for-byte port of
+  the retired v3 server's Rust implementation). Its output is frozen by a
+  golden-vector contract — see [`CONTRACT.md`](../../CONTRACT.md) and
   [design-decisions.md](design-decisions.md).
-- It is **never a wire field.** Emitters do not (and must not) send it. That keeps
-  the hash byte-layout a private implementation detail — it can change without
-  coordinating a producer release.
-- The migrator **copies it verbatim** and never recomputes it (see below), so the
-  upsert-not-duplicate invariant is preserved bit-for-bit across DB generations.
+- It is **never a wire field.** Emitters do not (and must not) send it — the
+  ingest writer computes it just before INSERT. Note that with every production
+  row already keyed by it, the byte layout is **frozen**: it can never change
+  again without re-keying the whole database.
+- The migrator **copied it verbatim** and never recomputed it (see below), so the
+  upsert-not-duplicate invariant was preserved bit-for-bit across DB generations.
 
 ### `SCHEMA_VERSION`: the cross-repo lockstep
 
-A single integer gates every ingest. The envelope carries
-`run_meta.schema_version`; a mismatch is rejected (409 if the producer is newer
-than the reader, 400 if older). It is anchored in several places that **must**
-agree, in one logical change:
+A single integer keeps the producer wire shape and the reader in lockstep. It is
+anchored in several places that **must** agree, in one logical change:
 
 | Site | File | Repo |
 |---|---|---|
-| Source of truth | `server/src/schema.rs` (`SCHEMA_VERSION`) | this repo |
-| Web read-service mirror | `web/lib/schema-version.ts` | this repo |
+| Source of truth | `web/lib/schema-version.ts` | this repo |
 | Producer wire shape | `vortex-bench/src/v3.rs` | monorepo |
-| CI ingest wrapper | `scripts/post-ingest.py` (hardcoded literal) | monorepo |
+| CI ingest writer | `scripts/post-ingest.py` (hardcoded literal) | monorepo |
 
-The in-repo pair is checked automatically by `web/lib/schema-version.test.ts`,
-which reads `server/src/schema.rs` and `CONTRACT.md` and compares both against the
-TS constant. The cross-repo sites cannot be verified from here — a bump must be
-coordinated or every CI ingest run fails. Full procedure in
+The in-repo anchor is checked automatically by `web/lib/schema-version.test.ts`,
+which reads `CONTRACT.md` and compares its quoted anchor against the TS constant.
+The cross-repo sites cannot be verified from here — a bump must be coordinated or
+every CI ingest run fails. Full procedure in
 [`../../CONTRACT.md`](../../CONTRACT.md).
 
-## Ingest paths
+## The ingest path
 
-There are two ingest paths, both driven by the monorepo's `post-ingest.py`. They
-carry identical record shapes.
-
-### Path A — v3 `POST /api/ingest` (the current hard-required path)
-
-- **Endpoint:** `POST {V3_INGEST_URL}/api/ingest`, bearer-token auth.
-- **Body:** one `Envelope` (JSON). Every struct is
-  `#[serde(deny_unknown_fields)]`, so unknown fields fail loudly.
-- **Atomicity:** all-or-nothing. A single bad record rolls back the whole batch
-  (one DuckDB transaction). Write conflicts retry with backoff.
-- **Response:** `200 {inserted, updated}` on success; a precise
-  400/401/409/500 matrix otherwise (see CONTRACT.md).
-
-### Path B — v4 direct-Postgres dual-write (the forward path, best-effort)
-
-`post-ingest.py --postgres` writes the same records **directly to RDS** as the
-least-privilege `bench_ingest` IAM role (`INSERT … ON CONFLICT (measurement_id)
-DO UPDATE`), then pings `POST {BENCH_SITE_BASE_URL}/api/revalidate` to flush the
-Next.js read cache. Here `measurement_id` is computed locally by the script,
-mirroring the server-internal hash — still never a wire field. Every v4 step is
-`continue-on-error` and gated on a configured role ARN, so it is additive and
-never blocks Path A.
-
-> **Status:** Path B is live — it feeds the production v4 deployment at
-> `bench.vortex.dev`. Its CI steps remain `continue-on-error` while Path A is
-> still the hard-required target; they should be promoted to required when v3 is
-> retired (see [`../legacy.md`](../legacy.md)).
+`post-ingest.py --postgres` (required in monorepo benchmark CI) writes the
+records **directly to RDS** as the least-privilege `bench_ingest` IAM role
+(`INSERT … ON CONFLICT (measurement_id) DO UPDATE`), then pings
+`POST {BENCH_SITE_BASE_URL}/api/revalidate` to flush the Next.js read cache.
+Each JSONL file applies in one transaction. The retired v3 HTTP path
+(`POST /api/ingest` into the Rust server) is described in
+[`../legacy.md`](../legacy.md).
 
 ## Storage by generation
 
@@ -127,9 +102,11 @@ never blocks Path A.
 | v3 | A single **DuckDB** file on the EC2 host's local disk | The structured six-table schema; a precomputed read model materialized in memory |
 | v4 | **AWS RDS Postgres** (`vortex_bench`, us-east-1) | The same six-table schema, translated to Postgres DDL with read-path indexes |
 
-## The migrator: `vortex-bench-migrate`
+## The migrator: `vortex-bench-migrate` (historical)
 
-A throwaway Rust binary that bridges the generations. It has two jobs.
+A throwaway Rust binary that bridged the generations. Its job is done: the full
+history is in the production Postgres, so the binary was deleted with the v3
+tree (see git history). This section records how it worked. It had two jobs.
 
 ### Job 1 — `run`: v2 S3 dump → v3 DuckDB
 
@@ -144,7 +121,7 @@ reproduces v2's old read-time grouping logic (`getGroup`, `formatQuery`,
 structured tables. Records accumulate per table, deduplicate by `measurement_id`,
 and flush to DuckDB via Arrow appenders.
 
-The classifier exists **only** for v2 data: v3+ emitters already produce
+The classifier existed **only** for v2 data: v3+ emitters already produce
 structured records, so the live read path never classifies. It is a one-time
 translation that goes away when v3 is decommissioned. The `run` self-gates: it
 fails if more than 5% of records are uncategorized, or if a `file-sizes-*` source
@@ -194,9 +171,9 @@ v2 S3 dump ──run──▶ v3 DuckDB ──load --replace──▶ v4 RDS ─
                                    atomic TRUNCATE+COPY)
 ```
 
-The migrator is kept (not deleted at cutover) precisely so this refresh can be
-re-run: `--replace` is the atomic full-replace path, decoupled from the live
-upsert ingest. RDS point-in-time recovery (35-day retention) is the rollback net
-for the prod load. The local rehearsal harness (`migrate/tests/postgres_e2e.rs`,
-Docker-gated) stands up a throwaway Postgres, runs `load`+`verify`, and asserts a
-forced mid-load failure rolls back to empty.
+This refresh was last run for the 2026-07-07 backfill (with a scoped merge mode
+rather than `--replace`); with the migrator deleted, the disaster-recovery story
+is now RDS point-in-time recovery (35-day retention) and manual snapshots, not a
+rebuild from the v2 dump. The local rehearsal harness
+(`migrate/tests/postgres_e2e.rs`, Docker-gated) stood up a throwaway Postgres,
+ran `load`+`verify`, and asserted a forced mid-load failure rolls back cleanly.
