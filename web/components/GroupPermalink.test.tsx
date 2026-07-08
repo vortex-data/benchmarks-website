@@ -11,14 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GroupPermalink, groupPermalinkUrl } from '@/components/GroupPermalink';
 
 describe('groupPermalinkUrl', () => {
-  it('joins origin, pathname, and the percent-encoded slug fragment', () => {
+  it('joins origin, pathname, and the readable anchor fragment', () => {
     const loc = { origin: 'https://bench.vortex.dev', pathname: '/' };
-    expect(groupPermalinkUrl('random_access.abc', loc)).toBe(
-      'https://bench.vortex.dev/#random_access.abc',
-    );
+    expect(groupPermalinkUrl('random-access', loc)).toBe('https://bench.vortex.dev/#random-access');
   });
 
-  it('percent-encodes fragment-hostile slug characters', () => {
+  it('percent-encodes fragment-hostile anchor characters defensively', () => {
     const loc = { origin: 'https://bench.vortex.dev', pathname: '/' };
     expect(groupPermalinkUrl('a#b c', loc)).toBe('https://bench.vortex.dev/#a%23b%20c');
   });
@@ -26,7 +24,9 @@ describe('groupPermalinkUrl', () => {
 
 describe('GroupPermalink markup', () => {
   it('renders a labelled icon button', () => {
-    const html = renderToStaticMarkup(<GroupPermalink slug="ra.abc" groupName="Random Access" />);
+    const html = renderToStaticMarkup(
+      <GroupPermalink anchor="random-access" groupName="Random Access" />,
+    );
     expect(html).toContain('class="group-permalink"');
     expect(html).toContain('type="button"');
     expect(html).toContain('aria-label="Copy link to Random Access"');
@@ -77,7 +77,7 @@ describe('GroupPermalink click behavior', () => {
     container.appendChild(details);
     root = createRoot(summary);
     act(() => {
-      root?.render(<GroupPermalink slug="random_access.abc" groupName="Random Access" />);
+      root?.render(<GroupPermalink anchor="random-access" groupName="Random Access" />);
     });
     const button = container.querySelector<HTMLButtonElement>('button.group-permalink');
     if (!button) {
@@ -94,8 +94,8 @@ describe('GroupPermalink click behavior', () => {
       button.dispatchEvent(click);
     });
 
-    expect(copiedText).toEqual([`${window.location.origin}/#random_access.abc`]);
-    expect(window.location.hash).toBe('#random_access.abc');
+    expect(copiedText).toEqual([`${window.location.origin}/#random-access`]);
+    expect(window.location.hash).toBe('#random-access');
     // preventDefault suppresses the <summary> activation that would otherwise
     // toggle the group open.
     expect(click.defaultPrevented).toBe(true);

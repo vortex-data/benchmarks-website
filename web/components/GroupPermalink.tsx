@@ -9,21 +9,23 @@ import { useEffect, useRef, useState } from 'react';
 const COPIED_FEEDBACK_MS = 1500;
 
 /**
- * Build the shareable URL for a group: the landing page with the group's slug
- * as the fragment. [`GroupSection`] stamps the slug as the section's `id`, so
- * the fragment is a real anchor even without JavaScript; with JavaScript,
- * [`GroupNav`]'s hash-jump effect also expands the group's disclosure on load.
+ * Build the shareable URL for a group: the landing page with the group's
+ * human-readable anchor (see `lib/anchor.ts`) as the fragment.
+ * [`GroupSection`] stamps the anchor as the section's `id`, so the fragment is
+ * a real anchor even without JavaScript; with JavaScript, [`GroupNav`]'s
+ * hash-jump effect also expands the group's disclosure on load.
  *
- * The fragment is percent-encoded because slugs may contain arbitrary
- * user-influenced characters; the hash-jump effect decodes symmetrically.
+ * Anchors are already fragment-safe (`[a-z0-9-]`), but the fragment is
+ * percent-encoded anyway so a future anchor shape cannot silently produce an
+ * invalid URL; the hash-jump effect decodes symmetrically.
  *
  * Exported so the URL shape is unit-testable without a clipboard.
  */
 export function groupPermalinkUrl(
-  slug: string,
+  anchor: string,
   loc: Pick<Location, 'origin' | 'pathname'>,
 ): string {
-  return `${loc.origin}${loc.pathname}#${encodeURIComponent(slug)}`;
+  return `${loc.origin}${loc.pathname}#${encodeURIComponent(anchor)}`;
 }
 
 /**
@@ -38,7 +40,7 @@ export function groupPermalinkUrl(
  * click toggles the group open/closed; `preventDefault` suppresses that
  * native toggle so copying a link never collapses the group.
  */
-export function GroupPermalink({ slug, groupName }: { slug: string; groupName: string }) {
+export function GroupPermalink({ anchor, groupName }: { anchor: string; groupName: string }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -64,11 +66,11 @@ export function GroupPermalink({ slug, groupName }: { slug: string; groupName: s
         // preventDefault keeps the copy action from also collapsing the group.
         e.preventDefault();
         e.stopPropagation();
-        const url = groupPermalinkUrl(slug, window.location);
+        const url = groupPermalinkUrl(anchor, window.location);
         // Reflect the fragment in the address bar first: it is the no-clipboard
         // fallback, and replaceState (unlike assigning `location.hash`) does
         // not scroll or fire `hashchange`, so the page stays put.
-        window.history.replaceState(null, '', `#${encodeURIComponent(slug)}`);
+        window.history.replaceState(null, '', `#${encodeURIComponent(anchor)}`);
         void navigator.clipboard?.writeText(url).catch(() => {
           // Clipboard denied or unavailable: the address bar already carries
           // the fragment, so there is nothing further to do.

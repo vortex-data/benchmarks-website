@@ -31,17 +31,21 @@ import type { Group } from '@/lib/queries';
  * `startIndex` is the running page-wide chart index of this group's first
  * chart, so `data-chart-index` is unique across every chart on the page.
  *
- * The section carries `id={group.slug}` so each group has a stable URL
- * fragment: the summary row's [`GroupPermalink`] button copies
- * `/#<slug>`, the fragment scrolls natively even without JavaScript, and
- * [`GroupNav`]'s hash-jump effect expands the disclosure on load.
+ * The section carries `id={anchor}` — the human-readable anchor the page
+ * derives from the group name via `lib/anchor.ts` (`#tpc-h-nvme-sf-1`, not the
+ * opaque API slug) — so each group has a stable, legible URL fragment: the
+ * summary row's [`GroupPermalink`] button copies `/#<anchor>`, the fragment
+ * scrolls natively even without JavaScript, and [`GroupNav`]'s hash-jump
+ * effect expands the disclosure on load.
  */
 export function GroupSection({
   group,
+  anchor,
   startIndex,
   universe,
 }: {
   group: Group;
+  anchor: string;
   startIndex: number;
   universe: FilterUniverse;
 }) {
@@ -49,7 +53,7 @@ export function GroupSection({
   return (
     <section
       className="group-details"
-      id={group.slug}
+      id={anchor}
       data-group-name={group.name}
       data-group-slug={group.slug}
     >
@@ -71,7 +75,7 @@ export function GroupSection({
             <span className="group-count">
               {chartCount} chart{chartCount !== 1 ? 's' : ''}
             </span>
-            <GroupPermalink slug={group.slug} groupName={group.name} />
+            <GroupPermalink anchor={anchor} groupName={group.name} />
           </span>
         </summary>
       </details>

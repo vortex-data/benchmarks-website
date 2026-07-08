@@ -43,10 +43,11 @@ describe('jumpToGroup', () => {
 
   function seedSections(): void {
     document.body.innerHTML = `
-      <section data-group-slug="qmg.polar">
+      <div id="group-nav-panel"></div>
+      <section id="polarsignals-profiling" data-group-slug="qmg.polar">
         <details class="group-disclosure"><summary>PolarSignals</summary></details>
       </section>
-      <section data-group-slug="random_access.abc">
+      <section id="random-access" data-group-slug="random_access.abc">
         <details class="group-disclosure"><summary>Random Access</summary></details>
       </section>`;
   }
@@ -85,11 +86,26 @@ describe('jumpToGroup', () => {
       window.history.replaceState(null, '', '/');
     });
 
-    it('expands and scrolls to the group named by the fragment, decoding it', () => {
+    it('expands and scrolls to the group whose anchor id the fragment names', () => {
       seedSections();
       const scrollSpy = vi.fn();
       Element.prototype.scrollIntoView = scrollSpy;
-      // GroupPermalink percent-encodes the slug; the jump decodes symmetrically.
+      window.history.replaceState(null, '', '#random-access');
+
+      expect(jumpToLocationHash(document)).toBe(true);
+      const disclosure = document
+        .querySelector('#random-access')
+        ?.querySelector<HTMLDetailsElement>('details.group-disclosure');
+      expect(disclosure?.open).toBe(true);
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the opaque-slug match for legacy fragments, decoding them', () => {
+      seedSections();
+      const scrollSpy = vi.fn();
+      Element.prototype.scrollIntoView = scrollSpy;
+      // Links copied before anchors became readable carried the API slug,
+      // percent-encoded by GroupPermalink; the jump decodes symmetrically.
       window.history.replaceState(null, '', `#${encodeURIComponent('random_access.abc')}`);
 
       expect(jumpToLocationHash(document)).toBe(true);
@@ -107,6 +123,16 @@ describe('jumpToGroup', () => {
 
       expect(jumpToLocationHash(document)).toBe(false);
       window.history.replaceState(null, '', '#does-not-exist');
+      expect(jumpToLocationHash(document)).toBe(false);
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    it('ignores fragments naming a non-group element id', () => {
+      seedSections();
+      const scrollSpy = vi.fn();
+      Element.prototype.scrollIntoView = scrollSpy;
+      window.history.replaceState(null, '', '#group-nav-panel');
+
       expect(jumpToLocationHash(document)).toBe(false);
       expect(scrollSpy).not.toHaveBeenCalled();
     });
