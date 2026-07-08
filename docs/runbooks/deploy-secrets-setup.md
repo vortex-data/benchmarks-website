@@ -21,8 +21,6 @@ values from, never values themselves.
 **Related documentation (cross-reference — do not duplicate):**
 - [`infra/README.md`](../../infra/README.md) — RDS Postgres + RDS Proxy + OIDC provisioning
   history and bootstrap procedure for account `245040174862`.
-- [`ops/README.md`](../../ops/README.md) and [`ops/BOOTSTRAP.md`](../../ops/BOOTSTRAP.md) — v3
-  EC2 host architecture and step-by-step bootstrap/recovery.
 - [`migrations/README.md`](../../migrations/README.md) — schema migration bootstrap ordering,
   `requires-superuser` marker contract, and `migrator` role history.
 

@@ -6,10 +6,10 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # Deploy and infrastructure
 
 How the v4 stack is provisioned, how code and schema reach production, and the
-legacy v3 host deploy. Operational detail lives in the runbooks
-([`../runbooks/`](../runbooks/)) and component READMEs
-([`../../infra/README.md`](../../infra/README.md),
-[`../../ops/README.md`](../../ops/README.md)); this doc is the *why* and the map.
+(decommissioned) legacy v3 host deploy. Operational detail lives in the runbooks
+([`../runbooks/`](../runbooks/)) and
+[`../../infra/README.md`](../../infra/README.md); this doc is the *why* and the
+map.
 
 ## AWS infrastructure (`infra/`)
 
@@ -113,24 +113,23 @@ runner: pnpm install + `vercel build [--prod]`   (builds web/ ON THE RUNNER)
 - A `web-keep-warm` scheduled workflow pings the production deployment so the RDS
   connection pool and Data Cache stay warm between visits.
 
-## Legacy v3 host deploy (`ops/`) — being retired
+## Legacy v3 host deploy (`ops/`) — decommissioned 2026-07-08
 
-The v3 Rust server runs on an EC2 host under systemd, deployed by a **polling**
+The v3 Rust server ran on an EC2 host under systemd, deployed by a **polling**
 model (no inbound deploy surface):
 
-- A `vortex-bench-deploy` systemd timer fires `ops/deploy.sh` every 60s. It fetches
-  the branch, and if the server/migrator paths changed, `cargo build --release`s,
-  swaps a versioned binary via an **atomic symlink** + `systemctl restart`, then
-  polls `/health`. On health failure it **reverts the symlink and re-probes**;
-  it only stamps success after a healthy probe, so a bad SHA retries rather than
-  staying live.
-- A `vortex-bench-backup` timer hourly `POST`s to the loopback admin
-  `/api/admin/snapshot`, tars the per-table Vortex snapshots, and uploads to S3
-  (7-day lifecycle).
+- A `vortex-bench-deploy` systemd timer fired `ops/deploy.sh` every 60s. It
+  fetched the branch, and if the server/migrator paths changed,
+  `cargo build --release`d, swapped a versioned binary via an **atomic symlink**
+  + `systemctl restart`, then polled `/health`. On health failure it **reverted
+  the symlink and re-probed**; it only stamped success after a healthy probe, so
+  a bad SHA retried rather than staying live.
+- A `vortex-bench-backup` timer hourly `POST`ed to the loopback admin
+  `/api/admin/snapshot`, tarred the per-table Vortex snapshots, and uploaded to
+  S3 (7-day lifecycle).
 
-This path is independent of the v4 go-live and will be decommissioned with v3.
-See [`../../ops/README.md`](../../ops/README.md) and
-[`../../ops/BOOTSTRAP.md`](../../ops/BOOTSTRAP.md).
+The host, its backups, and the `ops/` scripts are all gone (see
+[`../legacy.md`](../legacy.md)); the scripts live in git history.
 
 ## Where deploy state lives
 

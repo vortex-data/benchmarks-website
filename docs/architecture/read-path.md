@@ -7,8 +7,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 How database rows become charts. The forward stack is **v4** (Next.js on Vercel,
 reading RDS Postgres); it descends from the **v3** Rust read model, summarized at
-the end for context. The component-level v3 doc is
-[`../../server/ARCHITECTURE.md`](../../server/ARCHITECTURE.md).
+the end for context. (The component-level v3 doc, `server/ARCHITECTURE.md`, was
+deleted with the v3 tree and lives in git history.)
 
 ## The chart abstraction
 
@@ -144,7 +144,8 @@ use IAM tokens — see [deploy-and-infra.md](deploy-and-infra.md).
 
 `vortex-bench-server` is the generation v4 replaced. It is worth understanding
 because v4 inherited its data shapes and its "precompute the hot path" philosophy.
-Full detail in [`../../server/ARCHITECTURE.md`](../../server/ARCHITECTURE.md).
+(Its code and `server/ARCHITECTURE.md` were deleted with the v3 tree; see git
+history.)
 
 - **Storage:** a local DuckDB file. Ingest (`POST /api/ingest`) applies an
   envelope in one transaction, then schedules a background rebuild of an

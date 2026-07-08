@@ -88,7 +88,6 @@ retired or being decommissioned, and everything about them lives in
 | `infra/` | AWS provisioning for the hosted Postgres + IAM ([README](infra/README.md)). |
 | `scripts/` | The schema-deploy runner and golden fixtures. |
 | `docs/` | Architecture docs, operational runbooks, and the legacy-generations doc. |
-| `server/`, `migrate/`, `ops/` | **Legacy** v3 pieces — see [`docs/legacy.md`](docs/legacy.md). |
 
 ## Quick start
 
@@ -98,17 +97,14 @@ cd web && pnpm install && pnpm dev
 ```
 
 `pnpm build` deliberately works without a database, so CI can build with no secrets. See
-[`AGENTS.md`](AGENTS.md) for the full local-dev and env-var contract, and
-[`docs/legacy.md`](docs/legacy.md) if you need to run the legacy Rust stack.
+[`AGENTS.md`](AGENTS.md) for the full local-dev and env-var contract.
 
 ## Status
 
 The site is **live production**: `bench.vortex.dev` is served by the Vercel deployment, and the
-monorepo emitters write each run directly to Postgres. What remains is legacy teardown:
-
-- Promote the monorepo's v4 ingest steps from best-effort (`continue-on-error`) to required.
-- Decommission the v2 and v3 deployments and delete their code from both repos. The inventory is
-  in [`docs/legacy.md`](docs/legacy.md).
+monorepo emitters write each run directly to Postgres as a required CI step. The v3 generation is
+fully decommissioned (infrastructure and code); what remains is the v2 teardown, whose inventory
+is in [`docs/legacy.md`](docs/legacy.md).
 
 ## License
 

@@ -16,11 +16,11 @@ to tear down. The full history and the design rationale behind each rebuild live
 | Gen | Stack | Storage | Status |
 |---|---|---|---|
 | **v2** | Node `server.js` + Vite/React SPA on Cloudflare | Static `data.json.gz` dump in public S3 | Retired from serving; its S3 dump still receives CI uploads |
-| **v3** | Rust `axum` + `maud` server on an EC2 host | DuckDB file on local disk | Never user-facing; still a hard-required emit target |
+| **v3** | Rust `axum` + `maud` server on an EC2 host | DuckDB file on local disk | **Fully decommissioned 2026-07-08** — host, backups, ingest steps, and code all deleted |
 | **v4** | `web/` (Next.js App Router) on Vercel | AWS RDS Postgres | **Live production** at `bench.vortex.dev` |
 
-The v2 source was deployed from elsewhere and never lived in this repo, though its S3 dump is
-still the migrator's historical source.
+The v2 source was deployed from elsewhere and never lived in this repo, though its S3 dump was
+the migrator's historical source.
 
 All three generations were fed by the same emitter output, so the record shapes are identical
 across them — that shared shape is what made the v2→v3→v4 migration a faithful copy rather than a
@@ -35,48 +35,44 @@ Why three? Each generation traded the previous one's main weakness:
   deploy) to a managed serverless stack (Next.js on Vercel reading hosted RDS Postgres), so there
   is no box to operate.
 
-## What lives where
+## Where the code went
 
-| Path | What it is |
-|---|---|
-| [`server/`](../server/ARCHITECTURE.md) | The v3 Rust `axum` ingest/read server. |
-| [`migrate/`](../migrate/README.md) | `vortex-bench-migrate`, the v2→v3→v4 migration tool. |
-| [`ops/`](../ops/README.md) | The v3 host deploy runbook and scripts. |
-| [`runbooks/v3-host-repoint.md`](runbooks/v3-host-repoint.md) | Repointing the v3 EC2 host. |
+The whole v3 Rust tree — `server/` (the `axum` ingest/read server), `migrate/`
+(`vortex-bench-migrate`, the v2→v3→v4 migration tool), `ops/` (the host deploy runbook and
+scripts), the Cargo workspace files, and the v3 runbooks — was deleted from the working tree
+once the v3 infrastructure was gone. Recover any of it from git history (the deletion commit's
+parent has the final state).
 
-`migrate/` is not purely legacy: its `load` mode is still the v4 backfill and atomic full-refresh
-path (`load --replace` against RDS), so it outlives the v2/v3 deployments. See
-[`architecture/data-pipeline.md`](architecture/data-pipeline.md).
+The one contract that outlived the deletion is the `measurement_id` hash: the Rust
+implementation in `server/src/db.rs` generated the golden vectors that now live in the monorepo
+(`scripts/measurement_id_golden.json`, asserted by `scripts/tests/test_measurement_id.py`
+against the Python writer). Those vectors are frozen forever — see
+[`CONTRACT.md`](../CONTRACT.md).
 
-## Running the legacy Rust stack
-
-```bash
-# v3 server (DuckDB) + workspace tests:
-INGEST_BEARER_TOKEN=dev cargo run -p vortex-bench-server
-cargo nextest run -p vortex-bench-server -p vortex-bench-migrate
-
-# Build a fresh DuckDB from the v2 S3 dump:
-cargo run -p vortex-bench-migrate -- run --output ./bench.duckdb
-```
-
-## Teardown inventory
+## v3 teardown record (completed 2026-07-08)
 
 v4 serves the full history and is a superset of the v2 dump (after the 2026-07-07 merge backfill
-restored the appian and fineweb `[s3]` history), so the teardown is unblocked. The accepted loss
-is ~910 v3 chart points that never reached the v2 dump.
+restored the appian and fineweb `[s3]` history). The accepted loss is ~910 v3 chart points that
+never reached the v2 dump.
 
-In the monorepo:
+- Monorepo PR #8683 deleted the three `V3_INGEST_URL`-gated v3 ingest steps (`bench.yml`,
+  `sql-benchmarks.yml`, `commit-metadata.yml`) and promoted the v4 ingest steps
+  (`post-ingest.py --postgres`) from `continue-on-error: true` to required.
+- The `V3_INGEST_URL` variable and `INGEST_BEARER_TOKEN` / `ADMIN_BEARER_TOKEN` secrets were
+  deleted from the monorepo.
+- The EC2 host (`connor-benchmarks-v3`, us-east-2), its `bench-v3-ingest` security group, the
+  `VortexBenchServerRole` IAM role/instance profile, the `VortexBenchV3Backups` policy, and the
+  `vortex-benchmark-results-database` S3 backup bucket were all deleted.
+- This repo deleted the v3 code (see above).
 
-- Promote the v4 ingest steps (`post-ingest.py --postgres`, gated on the ingest role ARN) from
-  `continue-on-error: true` to required.
-- Delete the three `V3_INGEST_URL`-gated v3 ingest steps (`bench.yml`, `sql-benchmarks.yml`,
-  `commit-metadata.yml`).
-- Repoint the PR-benchmark compare off the v2 S3 bucket, then delete the v2 uploads and
-  `publish-benchmarks-website.yml`.
-- Keep `vortex-bench/src/v3.rs` and `post-ingest.py --postgres` — they are v4's wire format, not
-  v3 leftovers.
+`vortex-bench/src/v3.rs` and `post-ingest.py` stay in the monorepo — the "v3" JSONL record shape
+is v4's wire format, not a v3 leftover.
 
-In this repo (after the v3 EC2 host and its S3 backups are gone):
+## v2 teardown inventory (remaining)
 
-- Delete `server/`, `ops/`, the v3 runbooks, and the Rust CI workflow.
-- Keep `migrate/` for as long as the full-refresh path is wanted.
+Blocked first on repointing the monorepo's PR-benchmark compare off the v2 S3 bucket
+(`sql-benchmarks.yml` and `bench-pr.yml` download `data.json.gz` as the comparison baseline).
+Then, in the monorepo: delete the v2 upload steps (`cat-s3.sh`, `commit-json.sh`, the
+commit-metadata S3 job), the `benchmarks-website/` directory (the v2 site source), and
+`publish-benchmarks-website.yml`, plus the GHCR site image. Finally: the orphaned v2 Cloudflare
+project and the `vortex-ci-benchmark-results` bucket itself.
