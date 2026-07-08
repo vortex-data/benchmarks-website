@@ -43,9 +43,32 @@ export function jumpToGroup(slug: string, doc: Document = document): boolean {
 }
 
 /**
+ * Expand and scroll to the group named by the window's URL fragment, if any.
+ *
+ * This is the landing half of the group-permalink flow: [`GroupPermalink`]
+ * copies `/#<slug>` (percent-encoded, decoded symmetrically here), and this
+ * turns that fragment back into an opened, scrolled-to group via
+ * [`jumpToGroup`] — the browser's native anchor scroll cannot open the
+ * `<details>` disclosure on its own. An unknown or absent fragment is a no-op.
+ *
+ * Exported so the fragment handling is unit-testable without rendering.
+ */
+export function jumpToLocationHash(doc: Document = document): boolean {
+  const hash = doc.defaultView?.location.hash ?? '';
+  if (!hash.startsWith('#') || hash.length === 1) {
+    return false;
+  }
+  return jumpToGroup(decodeURIComponent(hash.slice(1)), doc);
+}
+
+/**
  * A left-side "Jump to group" menu: a fixed toggle button that opens a panel
  * listing every group, each a button that expands and scrolls to that group's
  * section (via [`jumpToGroup`]) and then closes the panel.
+ *
+ * Also hosts the hash-jump effect: on mount and on every later `hashchange`,
+ * [`jumpToLocationHash`] expands and scrolls to the group a `/#<slug>`
+ * permalink points at.
  *
  * Toggle-driven (not hover) so it works on touch and keyboard, mirroring the
  * header's hamburger nav ([`Header`]): `aria-expanded` / `aria-controls` on the
@@ -56,6 +79,18 @@ export function GroupNav({ groups }: { groups: GroupNavItem[] }) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // Land group permalinks: expand and scroll to the fragment's group on mount
+  // (the copied-link entry path) and on later `hashchange` (back/forward
+  // between fragments, or an in-page anchor click).
+  useEffect(() => {
+    jumpToLocationHash();
+    const onHashChange = (): void => {
+      jumpToLocationHash();
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Close on outside click and Escape while open (the header nav's pattern).
   useEffect(() => {

@@ -37,6 +37,9 @@ describe('GroupSection', () => {
     expect(html).toContain('class="group-details"');
     expect(html).toContain('data-group-name="Random Access"');
     expect(html).toContain(`data-group-slug="${RANDOM_ACCESS.slug}"`);
+    // The slug doubles as the section's anchor id, the target of group
+    // permalinks (`/#<slug>`).
+    expect(html).toContain(`id="${RANDOM_ACCESS.slug}"`);
     // The disclosure is collapsed by default (no `open` attribute on the tag).
     expect(html).toContain('<details class="group-disclosure">');
     expect(html).toContain('<span class="group-name">Random Access</span>');
@@ -49,6 +52,14 @@ describe('GroupSection', () => {
     expect(html).toContain('class="group-info-icon"');
     expect(html).toContain('data-tooltip="Tests selecting arbitrary row indices on NVMe"');
     expect(html).toContain('2 charts');
+  });
+
+  it('renders the copy-link button in the summary header', () => {
+    const html = renderToStaticMarkup(
+      <GroupSection group={RANDOM_ACCESS} startIndex={0} universe={UNIVERSE} />,
+    );
+    expect(html).toContain('class="group-permalink"');
+    expect(html).toContain('aria-label="Copy link to Random Access"');
   });
 
   it('renders the summary card inside the section', () => {

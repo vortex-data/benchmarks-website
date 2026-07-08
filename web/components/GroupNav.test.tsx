@@ -6,7 +6,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { GroupNav, jumpToGroup, type GroupNavItem } from '@/components/GroupNav';
+import {
+  GroupNav,
+  jumpToGroup,
+  jumpToLocationHash,
+  type GroupNavItem,
+} from '@/components/GroupNav';
 
 const GROUPS: GroupNavItem[] = [
   { name: 'Random Access', slug: 'random_access.abc' },
@@ -73,5 +78,37 @@ describe('jumpToGroup', () => {
 
     expect(jumpToGroup('does-not-exist', document)).toBe(false);
     expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  describe('jumpToLocationHash', () => {
+    afterEach(() => {
+      window.history.replaceState(null, '', '/');
+    });
+
+    it('expands and scrolls to the group named by the fragment, decoding it', () => {
+      seedSections();
+      const scrollSpy = vi.fn();
+      Element.prototype.scrollIntoView = scrollSpy;
+      // GroupPermalink percent-encodes the slug; the jump decodes symmetrically.
+      window.history.replaceState(null, '', `#${encodeURIComponent('random_access.abc')}`);
+
+      expect(jumpToLocationHash(document)).toBe(true);
+      const disclosure = document
+        .querySelector('[data-group-slug="random_access.abc"]')
+        ?.querySelector<HTMLDetailsElement>('details.group-disclosure');
+      expect(disclosure?.open).toBe(true);
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op for an empty or unknown fragment', () => {
+      seedSections();
+      const scrollSpy = vi.fn();
+      Element.prototype.scrollIntoView = scrollSpy;
+
+      expect(jumpToLocationHash(document)).toBe(false);
+      window.history.replaceState(null, '', '#does-not-exist');
+      expect(jumpToLocationHash(document)).toBe(false);
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
   });
 });
