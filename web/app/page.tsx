@@ -5,6 +5,7 @@ import { Footer } from '@/components/Footer';
 import { GroupNav } from '@/components/GroupNav';
 import { GroupSection } from '@/components/GroupSection';
 import { Header } from '@/components/Header';
+import { groupAnchors } from '@/lib/anchor';
 import { parseFilterCsv, singleSearchParam } from '@/lib/chart-format';
 import { cachedFilterUniverse, cachedGroups } from '@/lib/data-cache';
 
@@ -42,23 +43,33 @@ export default async function Home({
   const initialFormats = parseFilterCsv(singleSearchParam(params.format));
 
   const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);
+  // Human-readable permalink anchors, one per section in render order (see
+  // lib/anchor.ts for why these are not the opaque API slugs).
+  const anchors = groupAnchors(groups.map((group) => group.name));
   let nextIndex = 0;
   return (
     <>
       <Header universe={universe} initialEngines={initialEngines} initialFormats={initialFormats} />
-      <GroupNav groups={groups.map((group) => ({ name: group.name, slug: group.slug }))} />
+      <GroupNav
+        groups={groups.map((group, i) => ({
+          name: group.name,
+          slug: group.slug,
+          anchor: anchors[i],
+        }))}
+      />
       <main>
         {groups.length === 0 ? (
           <p className="empty">No data ingested yet.</p>
         ) : (
           <>
-            {groups.map((group) => {
+            {groups.map((group, i) => {
               const startIndex = nextIndex;
               nextIndex += group.charts.length;
               return (
                 <GroupSection
                   key={group.slug}
                   group={group}
+                  anchor={anchors[i]}
                   startIndex={startIndex}
                   universe={universe}
                 />

@@ -32,11 +32,19 @@ const RANDOM_ACCESS: Group = {
 describe('GroupSection', () => {
   it('renders the group-details shell with a collapsed disclosure', () => {
     const html = renderToStaticMarkup(
-      <GroupSection group={RANDOM_ACCESS} startIndex={5} universe={UNIVERSE} />,
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={5}
+        universe={UNIVERSE}
+      />,
     );
     expect(html).toContain('class="group-details"');
     expect(html).toContain('data-group-name="Random Access"');
     expect(html).toContain(`data-group-slug="${RANDOM_ACCESS.slug}"`);
+    // The readable anchor is the section's id, the target of group
+    // permalinks (`/#random-access`) - NOT the opaque API slug.
+    expect(html).toContain('id="random-access"');
     // The disclosure is collapsed by default (no `open` attribute on the tag).
     expect(html).toContain('<details class="group-disclosure">');
     expect(html).toContain('<span class="group-name">Random Access</span>');
@@ -44,16 +52,39 @@ describe('GroupSection', () => {
 
   it('renders the description info-icon and a pluralized chart count', () => {
     const html = renderToStaticMarkup(
-      <GroupSection group={RANDOM_ACCESS} startIndex={0} universe={UNIVERSE} />,
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={0}
+        universe={UNIVERSE}
+      />,
     );
     expect(html).toContain('class="group-info-icon"');
     expect(html).toContain('data-tooltip="Tests selecting arbitrary row indices on NVMe"');
     expect(html).toContain('2 charts');
   });
 
+  it('renders the copy-link button in the summary header', () => {
+    const html = renderToStaticMarkup(
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={0}
+        universe={UNIVERSE}
+      />,
+    );
+    expect(html).toContain('class="group-permalink"');
+    expect(html).toContain('aria-label="Copy link to Random Access"');
+  });
+
   it('renders the summary card inside the section', () => {
     const html = renderToStaticMarkup(
-      <GroupSection group={RANDOM_ACCESS} startIndex={0} universe={UNIVERSE} />,
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={0}
+        universe={UNIVERSE}
+      />,
     );
     expect(html).toContain('class="benchmark-scores-summary"');
     expect(html).toContain('Random Access Performance');
@@ -61,7 +92,12 @@ describe('GroupSection', () => {
 
   it('renders one chart-card shell per chart with page-wide indices and permalinks', () => {
     const html = renderToStaticMarkup(
-      <GroupSection group={RANDOM_ACCESS} startIndex={5} universe={UNIVERSE} />,
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={5}
+        universe={UNIVERSE}
+      />,
     );
     expect(html).toContain('class="chart-grid"');
     // First chart takes startIndex, second takes startIndex + 1.
@@ -81,7 +117,7 @@ describe('GroupSection', () => {
       charts: [{ name: 'recall', slug: 'vs.eyJhIjoxfQ' }],
     };
     const html = renderToStaticMarkup(
-      <GroupSection group={single} startIndex={0} universe={UNIVERSE} />,
+      <GroupSection group={single} anchor="vector-search" startIndex={0} universe={UNIVERSE} />,
     );
     expect(html).toContain('<span class="group-count">1 chart</span>');
     expect(html).not.toContain('class="group-info-icon"');

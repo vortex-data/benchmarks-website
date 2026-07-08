@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { Chart } from '@/components/Chart';
+import { GroupPermalink } from '@/components/GroupPermalink';
 import { GroupToolbar } from '@/components/GroupToolbar';
 import { SummaryCard } from '@/components/SummaryCard';
 import type { FilterUniverse } from '@/lib/chart-format';
@@ -29,19 +30,33 @@ import type { Group } from '@/lib/queries';
  *
  * `startIndex` is the running page-wide chart index of this group's first
  * chart, so `data-chart-index` is unique across every chart on the page.
+ *
+ * The section carries `id={anchor}` — the human-readable anchor the page
+ * derives from the group name via `lib/anchor.ts` (`#tpc-h-nvme-sf-1`, not the
+ * opaque API slug) — so each group has a stable, legible URL fragment: the
+ * summary row's [`GroupPermalink`] button copies `/#<anchor>`, the fragment
+ * scrolls natively even without JavaScript, and [`GroupNav`]'s hash-jump
+ * effect expands the disclosure on load.
  */
 export function GroupSection({
   group,
+  anchor,
   startIndex,
   universe,
 }: {
   group: Group;
+  anchor: string;
   startIndex: number;
   universe: FilterUniverse;
 }) {
   const chartCount = group.charts.length;
   return (
-    <section className="group-details" data-group-name={group.name} data-group-slug={group.slug}>
+    <section
+      className="group-details"
+      id={anchor}
+      data-group-name={group.name}
+      data-group-slug={group.slug}
+    >
       <details className="group-disclosure">
         <summary className="group-summary">
           <span className="group-summary-row">
@@ -60,6 +75,7 @@ export function GroupSection({
             <span className="group-count">
               {chartCount} chart{chartCount !== 1 ? 's' : ''}
             </span>
+            <GroupPermalink anchor={anchor} groupName={group.name} />
           </span>
         </summary>
       </details>

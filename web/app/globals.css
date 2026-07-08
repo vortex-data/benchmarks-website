@@ -494,6 +494,50 @@ main {
   text-transform: uppercase;
 }
 /*
+ * The copy-link button next to a group's chart count (GroupPermalink). A bare
+ * icon button with the info icon's muted-to-foreground hover treatment; the
+ * `--copied` state swaps in an accent-colored checkmark as confirmation.
+ */
+.group-permalink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+.group-permalink:hover,
+.group-permalink:focus-visible {
+  color: var(--fg);
+  background: var(--border);
+}
+.group-permalink--copied,
+.group-permalink--copied:hover,
+.group-permalink--copied:focus-visible {
+  color: var(--accent);
+}
+/* Screen-reader-only text (the permalink button's copied announcement). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/*
  * The small ⓘ next to a group title that surfaces the editorial blurb on
  * hover and on focus. The icon is keyboard-focusable. In the JS-free server
  * shell, clicking the icon toggles the surrounding `<details>` like the rest
