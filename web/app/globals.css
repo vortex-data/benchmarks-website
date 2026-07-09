@@ -957,7 +957,8 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   flex: 1 1 auto;
   min-width: 0;
 }
-.group-toolbar-reset {
+.group-toolbar-reset,
+.group-toolbar-empty-toggle {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -971,7 +972,13 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   font-size: 0.78rem;
   cursor: pointer;
 }
-.group-toolbar-reset:hover {
+.group-toolbar-reset:hover,
+.group-toolbar-empty-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* While the empty charts are revealed the toggle reads as engaged. */
+.group-toolbar-empty-toggle[aria-pressed='true'] {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1005,6 +1012,13 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 .chart-card:hover {
   box-shadow: var(--shadow-md);
+}
+/* A card classified as empty in the latest-100 window hides via the `hidden`
+ * attribute (the group toolbar's "show empty charts" toggle reveals it).
+ * Explicit rather than relying on the UA `[hidden]` rule so a future
+ * `display` property on `.chart-card` cannot silently re-show these cards. */
+.chart-card[hidden] {
+  display: none;
 }
 .chart-card-title {
   margin: 0 0 0.4rem;
