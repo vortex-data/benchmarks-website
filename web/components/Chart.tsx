@@ -16,6 +16,7 @@ import type {
 
 import {
   CHART_FETCH_N,
+  chartHasRecentData,
   clampRangeWindow,
   collectAllValues,
   commitDateLabel,
@@ -55,6 +56,7 @@ import {
 import { loadChartJs } from '@/lib/chart-js';
 import {
   abortGroupBundle,
+  chartIsHiddenAsEmpty,
   emptyGroupSnapshot,
   ensureGroupBundle,
   fullHistoryQueue,
@@ -62,6 +64,7 @@ import {
   getGlobalFilterSnapshot,
   getGroupSnapshot,
   hydrationQueue,
+  noteChartRecentData,
   noteGroupSeries,
   subscribeGlobalFilter,
   subscribeGroup,
@@ -459,6 +462,17 @@ class ChartController {
     return !details || (details as HTMLDetailsElement).open;
   }
 
+  /** Whether the group store currently hides this card as an empty chart (no
+   * data in the latest-100 window, reveal toggle off). Read from the store,
+   * not the DOM: the store mutation precedes React's `display: none` commit,
+   * so gating on it suppresses construction without racing the render. */
+  private hiddenAsEmpty(): boolean {
+    return (
+      this.groupSlug !== undefined &&
+      chartIsHiddenAsEmpty(getGroupSnapshot(this.groupSlug), this.slug)
+    );
+  }
+
   /**
    * Ensure this chart's default `?n=100` payload is loaded. Consults the session
    * payload cache first (a sibling group-bundle fetch may have already cached
@@ -624,6 +638,9 @@ class ChartController {
         this.cb.setLoading(false);
         if (this.groupSlug) {
           noteGroupSeries(this.groupSlug, normalized.series_meta);
+          // Classify the empty-window state from this `?n=100` payload (the
+          // per-chart analogue of the bundle-prime classification).
+          noteChartRecentData(this.groupSlug, this.slug, chartHasRecentData(normalized));
         }
         void this.maybeConstruct();
       },
@@ -800,7 +817,10 @@ class ChartController {
     if (state.chart || state.constructing || !state.payload || state.disposed) {
       return;
     }
-    if (!this.groupIsOpen()) {
+    // A card hidden as empty is `display: none`; constructing into it would
+    // yield a zero-size chart. The reveal effect re-enters when the toggle
+    // shows it (mirroring how the toggle-open path re-enters via onGroupOpen).
+    if (!this.groupIsOpen() || this.hiddenAsEmpty()) {
       return;
     }
     const { canvas, tooltipHost, card } = this.els();
@@ -829,11 +849,13 @@ class ChartController {
       if (state.disposed || state.chart || !state.payload) {
         return;
       }
-      // Re-check the disclosure AFTER the await: the group can close while the
+      // Re-check the disclosure AND the empty-hide AFTER the await: the group
+      // can close (or the bundle can classify this card empty) while the
       // Chart.js chunk loads (a window v3 never had, its library being
       // preloaded), and constructing into the display:none grid would render a
-      // zero-size chart. The next toggle-open re-enters via onGroupOpen.
-      if (!this.groupIsOpen()) {
+      // zero-size chart. The next toggle-open re-enters via onGroupOpen; the
+      // empty-reveal effect re-enters via maybeConstruct.
+      if (!this.groupIsOpen() || this.hiddenAsEmpty()) {
         return;
       }
       const payload = state.payload;
@@ -1111,6 +1133,14 @@ class ChartController {
     const state = this.state;
     const payload = normalizeChartPayload(rawPayload);
     state.payload = payload;
+    if (this.groupSlug) {
+      // [`chartHasRecentData`] reads only the trailing latest-100 slots, so the
+      // full-history payload yields the same verdict as the `?n=100` window;
+      // recording here (before the chart-null guard) covers the rare race where
+      // the full upgrade resolves before the initial window fetch, whose own
+      // handler then early-returns without classifying.
+      noteChartRecentData(this.groupSlug, this.slug, chartHasRecentData(payload));
+    }
     const chart = state.chart;
     if (!chart) {
       return;
@@ -1771,6 +1801,20 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
     controller.applyY(groupState.groupY ?? 'linear', false);
   }, [groupSlug, groupState.groupY]);
 
+  // A chart with no data in the latest-100 window hides by default (the card
+  // gets the `hidden` attribute below); the group toolbar's "show empty
+  // charts" toggle reveals it.
+  const hiddenAsEmpty = groupSlug !== undefined && chartIsHiddenAsEmpty(groupState, slug);
+  useEffect(() => {
+    // Construct on reveal: `maybeConstruct` bails while the card is hidden as
+    // empty (a display:none canvas would build a zero-size chart), so re-enter
+    // once React has committed the un-hidden DOM. No-op when no payload is
+    // waiting or the chart already exists.
+    if (!hiddenAsEmpty) {
+      void controllerRef.current?.maybeConstruct();
+    }
+  }, [hiddenAsEmpty]);
+
   // Mount wiring: controller construction, payload seeding, the throttled
   // slider listener, group toggle/intent listeners, and (on the permalink
   // page) intersection-based construction.
@@ -1995,7 +2039,13 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
   }, [error, retryable]);
 
   return (
-    <section className="chart-card" data-chart-index={index} data-chart-slug={slug} ref={cardRef}>
+    <section
+      className="chart-card"
+      data-chart-index={index}
+      data-chart-slug={slug}
+      hidden={hiddenAsEmpty}
+      ref={cardRef}
+    >
       <h3 className="chart-card-title">
         <a href={`/chart/${slug}`}>{name}</a>
         <span

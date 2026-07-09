@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyGroupMacro,
+  chartIsHiddenAsEmpty,
   clearGroupSeriesFilter,
+  ensureGroupBundle,
   getGlobalFilterSnapshot,
   getGroupSnapshot,
   hydrationQueue,
   initGlobalFilter,
+  noteChartRecentData,
   noteGroupSeries,
   resetGroup,
+  resetPayloadCache,
   setGroupY,
+  setShowEmptyCharts,
   subscribeGlobalFilter,
   subscribeGroup,
   toggleGlobalFilterValue,
@@ -142,6 +147,48 @@ describe('per-group store', () => {
     expect(snap.groupY).toBeNull();
     expect(Object.keys(snap.knownSeries)).toEqual(['s1']);
   });
+
+  it('records empty-window charts idempotently and notifies once per change', () => {
+    const slug = 'group-empty-note';
+    let notified = 0;
+    subscribeGroup(slug, () => {
+      notified += 1;
+    });
+    noteChartRecentData(slug, 'c-empty', false);
+    expect(getGroupSnapshot(slug).emptyCharts).toEqual(['c-empty']);
+    expect(notified).toBe(1);
+    // Re-noting the same verdict is a no-op (no notification, same snapshot).
+    const snap = getGroupSnapshot(slug);
+    noteChartRecentData(slug, 'c-empty', false);
+    expect(getGroupSnapshot(slug)).toBe(snap);
+    expect(notified).toBe(1);
+    // A chart with data never joins the set; a re-classified chart leaves it.
+    noteChartRecentData(slug, 'c-live', true);
+    expect(getGroupSnapshot(slug).emptyCharts).toEqual(['c-empty']);
+    noteChartRecentData(slug, 'c-empty', true);
+    expect(getGroupSnapshot(slug).emptyCharts).toEqual([]);
+  });
+
+  it('hides empty charts by default; the toggle reveals; Reset re-hides', () => {
+    const slug = 'group-empty-toggle';
+    noteChartRecentData(slug, 'c-empty', false);
+    expect(chartIsHiddenAsEmpty(getGroupSnapshot(slug), 'c-empty')).toBe(true);
+    expect(chartIsHiddenAsEmpty(getGroupSnapshot(slug), 'c-live')).toBe(false);
+
+    setShowEmptyCharts(slug, true);
+    expect(getGroupSnapshot(slug).showEmptyCharts).toBe(true);
+    expect(chartIsHiddenAsEmpty(getGroupSnapshot(slug), 'c-empty')).toBe(false);
+    // Setting the current value is a no-op (same snapshot reference).
+    const snap = getGroupSnapshot(slug);
+    setShowEmptyCharts(slug, true);
+    expect(getGroupSnapshot(slug)).toBe(snap);
+
+    // Reset restores the default-hidden state but keeps the classification.
+    resetGroup(slug);
+    expect(getGroupSnapshot(slug).showEmptyCharts).toBe(false);
+    expect(getGroupSnapshot(slug).emptyCharts).toEqual(['c-empty']);
+    expect(chartIsHiddenAsEmpty(getGroupSnapshot(slug), 'c-empty')).toBe(true);
+  });
 });
 
 describe('bounded priority queue', () => {
@@ -192,5 +239,59 @@ describe('bounded priority queue', () => {
     await expect(failing.promise).rejects.toThrow('boom');
     const ok = hydrationQueue.schedule(async () => 'fine', 0);
     await expect(ok.promise).resolves.toBe('fine');
+  });
+});
+
+describe('ensureGroupBundle empty-window classification', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetPayloadCache();
+  });
+
+  it('classifies every bundle chart, so hidden-by-default works without hydration', async () => {
+    const commits = Array.from({ length: 3 }, (_, i) => ({
+      sha: `sha${i}`,
+      timestamp: `2026-01-01 00:00:0${i}+00`,
+      message: `c${i}`,
+      url: `https://example.invalid/sha${i}`,
+    }));
+    const history = { total_commits: 3, start_index: 0, loaded_commits: 3, complete: true };
+    const bundle = {
+      name: 'g',
+      charts: [
+        // The empty-window wire shape: seeded commits, no recorded series.
+        {
+          name: 'stale',
+          slug: 'chart-stale',
+          display_name: 'stale',
+          unit_kind: 'bytes',
+          history,
+          commits,
+          series: {},
+        },
+        {
+          name: 'live',
+          slug: 'chart-live',
+          display_name: 'live',
+          unit_kind: 'bytes',
+          history,
+          commits,
+          series: { parquet: [1, 2, 3] },
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(bundle),
+      } as unknown as Response),
+    );
+    const groupSlug = 'bundle-empty-classify';
+    await ensureGroupBundle(groupSlug, 0);
+    const snap = getGroupSnapshot(groupSlug);
+    expect(snap.emptyCharts).toEqual(['chart-stale']);
+    expect(chartIsHiddenAsEmpty(snap, 'chart-stale')).toBe(true);
+    expect(chartIsHiddenAsEmpty(snap, 'chart-live')).toBe(false);
   });
 });

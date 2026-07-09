@@ -1054,3 +1054,36 @@ export function seriesPassesGroupFilter(
   }
   return !filter.hiddenSeries.includes(label);
 }
+
+/**
+ * Whether a chart payload carries at least one real data point inside its most
+ * recent `windowSize` commits (default: the [`DEFAULT_VISIBLE`] latest-100
+ * window the landing page hydrates from). Only the TRAILING `windowSize` slots
+ * of each series are inspected, so the classification is identical whichever
+ * payload shape arrives first: a bounded `?n=100` payload (every slot is
+ * recent), its normalized null-padded form, and a full `?n=all` history (only
+ * the tail counts) all judge the same chart the same way.
+ *
+ * A chart with NO recent data renders as bare axes on the landing page; the
+ * per-group store collects these so the group can hide them by default (the
+ * group toolbar's "show empty charts" toggle brings them back).
+ */
+export function chartHasRecentData(
+  payload: Pick<ChartResponse, 'series'>,
+  windowSize: number = DEFAULT_VISIBLE,
+): boolean {
+  const series = payload.series ?? {};
+  for (const values of Object.values(series)) {
+    if (!Array.isArray(values)) {
+      continue;
+    }
+    const from = Math.max(0, values.length - windowSize);
+    for (let i = from; i < values.length; i++) {
+      const v = values[i];
+      if (typeof v === 'number' && !Number.isNaN(v)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

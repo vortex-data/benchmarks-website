@@ -21,6 +21,7 @@
 
 import {
   BUNDLE_CONCURRENCY,
+  chartHasRecentData,
   FETCH_TIMEOUT_MS,
   FULL_HISTORY_CONCURRENCY,
   HYDRATION_CONCURRENCY,
@@ -225,6 +226,10 @@ export function ensureGroupBundle(groupSlug: string, priority: number): Promise<
           // keys are harmless in the cached payload.
           primePayload(chart.slug, chart);
           noteGroupSeries(groupSlug, chart.series_meta);
+          // The bundle IS the group's latest-100 window, so classify every
+          // chart's empty-window state here — including cards that never
+          // intersect the viewport (their islands never seed a payload).
+          noteChartRecentData(groupSlug, chart.slug, chartHasRecentData(chart));
         }
         // Mark the group complete so a reopen short-circuits without a refetch.
         // A 404 (`null` body) or a failure leaves it unmarked so a reopen retries.
@@ -364,9 +369,22 @@ export interface GroupSnapshot {
   groupY: 'linear' | 'log' | null;
   /** Series labels (with engine/format tags) surfaced by hydrated charts. */
   knownSeries: Record<string, SeriesTag>;
+  /** Chart slugs whose latest-100 window carries no data point at all (see
+   * [`chartHasRecentData`]); these cards hide by default. Data-derived, like
+   * `knownSeries`, so a group Reset leaves it intact. */
+  emptyCharts: string[];
+  /** The group toolbar's "show empty charts" toggle; `false` (the default and
+   * the post-Reset state) hides every `emptyCharts` card. */
+  showEmptyCharts: boolean;
 }
 
-const EMPTY_GROUP: GroupSnapshot = { hiddenSeries: [], groupY: null, knownSeries: {} };
+const EMPTY_GROUP: GroupSnapshot = {
+  hiddenSeries: [],
+  groupY: null,
+  knownSeries: {},
+  emptyCharts: [],
+  showEmptyCharts: false,
+};
 
 interface GroupStore {
   snapshot: GroupSnapshot;
@@ -453,12 +471,46 @@ export function setGroupY(slug: string, y: 'linear' | 'log'): void {
   setGroupSnapshot(slug, { ...prev, groupY: y });
 }
 
-/** Reset the group: empty series filter and no Y override. Per-card legend
- * overrides and per-card sticky Y choices are intentionally NOT cleared,
- * matching the v3 reset semantics. */
+/** Reset the group: empty series filter, no Y override, and empty charts back
+ * to hidden (the default). Per-card legend overrides and per-card sticky Y
+ * choices are intentionally NOT cleared, matching the v3 reset semantics. */
 export function resetGroup(slug: string): void {
   const prev = groupStore(slug).snapshot;
-  setGroupSnapshot(slug, { ...prev, hiddenSeries: [], groupY: null });
+  setGroupSnapshot(slug, { ...prev, hiddenSeries: [], groupY: null, showEmptyCharts: false });
+}
+
+/**
+ * Record whether one chart's latest-100 window carries any data (idempotent).
+ * Called with a [`chartHasRecentData`] verdict wherever a default-window payload
+ * lands — the group-bundle prime here in the store, plus the per-chart fetch
+ * paths in the chart island — so `emptyCharts` fills in as the group hydrates
+ * and the affected cards hide without a layout pass per notification.
+ */
+export function noteChartRecentData(slug: string, chartSlug: string, hasData: boolean): void {
+  const prev = groupStore(slug).snapshot;
+  const isEmpty = prev.emptyCharts.includes(chartSlug);
+  if (isEmpty === !hasData) {
+    return;
+  }
+  const emptyCharts = hasData
+    ? prev.emptyCharts.filter((s) => s !== chartSlug)
+    : [...prev.emptyCharts, chartSlug];
+  setGroupSnapshot(slug, { ...prev, emptyCharts });
+}
+
+/** Set the group toolbar's "show empty charts" toggle. */
+export function setShowEmptyCharts(slug: string, show: boolean): void {
+  const prev = groupStore(slug).snapshot;
+  if (prev.showEmptyCharts === show) {
+    return;
+  }
+  setGroupSnapshot(slug, { ...prev, showEmptyCharts: show });
+}
+
+/** Whether a group snapshot currently hides `chartSlug` as an empty card:
+ * classified empty in the latest-100 window and not revealed by the toggle. */
+export function chartIsHiddenAsEmpty(snapshot: GroupSnapshot, chartSlug: string): boolean {
+  return !snapshot.showEmptyCharts && snapshot.emptyCharts.includes(chartSlug);
 }
 
 /**

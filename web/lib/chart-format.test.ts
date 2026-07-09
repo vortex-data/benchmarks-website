@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assignStableColors,
   canonicalHistory,
+  chartHasRecentData,
   clampRangeWindow,
   collectAllValues,
   colorFor,
@@ -695,5 +696,46 @@ describe('lazy-hydration + fetch-resilience constants', () => {
 
   it('the IO root margin pre-hydrates charts slightly before they scroll in', () => {
     expect(LAZY_HYDRATION_ROOT_MARGIN).toMatch(/px/);
+  });
+});
+
+describe('chartHasRecentData', () => {
+  it('is false for the empty-window wire shape (no series at all)', () => {
+    // A chart whose fact rows all predate the latest-100 window arrives as 100
+    // seeded commits with `series: {}` (the accumulator never records a row).
+    expect(chartHasRecentData({ series: {} })).toBe(false);
+  });
+
+  it('is false when every series value is null', () => {
+    expect(chartHasRecentData({ series: { a: [null, null], b: [null] } })).toBe(false);
+  });
+
+  it('is true when any series carries one real value', () => {
+    expect(chartHasRecentData({ series: { a: [null, null], b: [null, 7] } })).toBe(true);
+  });
+
+  it('ignores NaN values', () => {
+    expect(chartHasRecentData({ series: { a: [Number.NaN, null] } })).toBe(false);
+  });
+
+  it('inspects only the trailing window of a full-history payload', () => {
+    // 150 slots with data only in the first 40: the trailing-100 window is all
+    // null, so the chart classifies empty — the same verdict its `?n=100`
+    // payload would produce.
+    const stale = new Array<number | null>(150).fill(null);
+    for (let i = 0; i < 40; i++) {
+      stale[i] = i + 1;
+    }
+    expect(chartHasRecentData({ series: { a: stale } })).toBe(false);
+    // One value inside the trailing window flips the verdict.
+    const alive = [...stale];
+    alive[149] = 42;
+    expect(chartHasRecentData({ series: { a: alive } })).toBe(true);
+  });
+
+  it('honors an explicit window size', () => {
+    const values = [1, null, null];
+    expect(chartHasRecentData({ series: { a: values } }, 2)).toBe(false);
+    expect(chartHasRecentData({ series: { a: values } }, 3)).toBe(true);
   });
 });

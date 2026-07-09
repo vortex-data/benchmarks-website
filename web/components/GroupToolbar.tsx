@@ -6,13 +6,14 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { FilterIcon } from '@/components/FilterBar';
-import type { FilterUniverse } from '@/lib/chart-format';
+import { DEFAULT_VISIBLE, type FilterUniverse } from '@/lib/chart-format';
 import {
   applyGroupMacro,
   clearGroupSeriesFilter,
   getGroupSnapshot,
   resetGroup,
   setGroupY,
+  setShowEmptyCharts,
   subscribeGroup,
   toggleGroupSeries,
 } from '@/lib/chart-store';
@@ -21,8 +22,14 @@ import {
  * The per-group toolbar between a group's summary card and its chart grid, the
  * client port of `landing.rs::per_group_toolbar` plus the section-17 wiring of
  * `chart-init.js`: group-level Y-axis buttons on the left, a centered "Filter
- * series" dropdown, and a Reset button on the right. CSS hides the toolbar
- * while the enclosing `<details>` is closed, mirroring the chart-grid rule.
+ * series" dropdown, and an empty-charts toggle plus a Reset button on the
+ * right. CSS hides the toolbar while the enclosing `<details>` is closed,
+ * mirroring the chart-grid rule.
+ *
+ * The empty-charts toggle appears only once the group's hydration (the bundle
+ * fetch or per-chart fallbacks) has classified at least one chart as having no
+ * data in the latest-100 window; those cards are hidden by default and the
+ * toggle shows/re-hides them (Reset also re-hides).
  *
  * The dropdown's engine/format chips are macros (one click bulk-toggles every
  * known series whose tag matches); the series chip row populates lazily via the
@@ -84,6 +91,7 @@ export function GroupToolbar({
   const yVisual = snapshot.groupY === 'log' ? 'log' : 'linear';
   const knownLabels = Object.keys(snapshot.knownSeries).sort();
   const hiddenCount = snapshot.hiddenSeries.length;
+  const emptyCount = snapshot.emptyCharts.length;
 
   return (
     <section className="group-toolbar" data-role="group-toolbar">
@@ -186,6 +194,27 @@ export function GroupToolbar({
           </div>
         </div>
       </div>
+      {/* Charts with no data in the latest-100 window hide by default; this
+          toggle (rendered only once the group's hydration has classified at
+          least one such chart) reveals or re-hides them. Reset also re-hides. */}
+      {emptyCount > 0 && (
+        <button
+          className="group-toolbar-empty-toggle"
+          type="button"
+          data-role="group-empty-toggle"
+          aria-pressed={snapshot.showEmptyCharts}
+          title={
+            `${emptyCount} chart${emptyCount !== 1 ? 's' : ''} in this group ` +
+            `ha${emptyCount !== 1 ? 've' : 's'} no data in the most recent ` +
+            `${DEFAULT_VISIBLE} commits and ${emptyCount !== 1 ? 'are' : 'is'} hidden by default.`
+          }
+          onClick={() => setShowEmptyCharts(groupSlug, !snapshot.showEmptyCharts)}
+        >
+          {snapshot.showEmptyCharts
+            ? `Hide ${emptyCount} empty chart${emptyCount !== 1 ? 's' : ''}`
+            : `Show ${emptyCount} empty chart${emptyCount !== 1 ? 's' : ''}`}
+        </button>
+      )}
       <button
         className="group-toolbar-reset"
         type="button"

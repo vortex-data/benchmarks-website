@@ -24,9 +24,9 @@ import type { Group } from '@/lib/queries';
  * `/api/chart/[slug]` when this group's disclosure opens (it listens for the
  * native `toggle` event of the enclosing `details.group-disclosure`).
  *
- * The per-group toolbar (group Y override + series filter + reset) sits
- * between the summary card and the chart grid, exactly as in v3's
- * `landing_body`; CSS hides it while the disclosure is closed.
+ * The per-group toolbar (group Y override + series filter + empty-charts
+ * toggle + reset) sits between the summary card and the chart grid, exactly as
+ * in v3's `landing_body`; CSS hides it while the disclosure is closed.
  *
  * `startIndex` is the running page-wide chart index of this group's first
  * chart, so `data-chart-index` is unique across every chart on the page.
