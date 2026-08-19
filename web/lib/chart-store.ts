@@ -27,6 +27,8 @@ import {
   HYDRATION_CONCURRENCY,
   seedActiveFormats,
   seedActiveFromAllowlist,
+  seriesPassesFilter,
+  seriesPassesGroupFilter,
   type FilterUniverse,
   type GlobalFilterState,
 } from '@/lib/chart-format';
@@ -365,6 +367,8 @@ export function toggleGlobalFilterValue(dim: 'engine' | 'format', value: string)
 export interface GroupSnapshot {
   /** Dataset labels the user has toggled off via the group's filter dropdown. */
   hiddenSeries: string[];
+  /** Dataset labels explicitly restored over a global engine/format filter. */
+  shownSeries: string[];
   /** The group-level Y override; `null` means "no override; defer to charts". */
   groupY: 'linear' | 'log' | null;
   /** Series labels (with engine/format tags) surfaced by hydrated charts. */
@@ -380,6 +384,7 @@ export interface GroupSnapshot {
 
 const EMPTY_GROUP: GroupSnapshot = {
   hiddenSeries: [],
+  shownSeries: [],
   groupY: null,
   knownSeries: {},
   emptyCharts: [],
@@ -424,17 +429,24 @@ export function getGroupSnapshot(slug: string): GroupSnapshot {
   return groupStore(slug).snapshot;
 }
 
-/** Seed one group's hidden-series filter from the current page URL. */
-export function initGroupFilter(slug: string, hiddenSeries: readonly string[]): void {
+/** Seed one group's local series overrides from the current page URL. */
+export function initGroupFilter(
+  slug: string,
+  hiddenSeries: readonly string[],
+  shownSeries: readonly string[] = [],
+): void {
   const prev = groupStore(slug).snapshot;
-  const nextHidden = [...new Set(hiddenSeries)];
+  const nextShown = [...new Set(shownSeries)];
+  const nextHidden = [...new Set(hiddenSeries)].filter((label) => !nextShown.includes(label));
   if (
     prev.hiddenSeries.length === nextHidden.length &&
-    prev.hiddenSeries.every((label, index) => label === nextHidden[index])
+    prev.hiddenSeries.every((label, index) => label === nextHidden[index]) &&
+    prev.shownSeries.length === nextShown.length &&
+    prev.shownSeries.every((label, index) => label === nextShown[index])
   ) {
     return;
   }
-  setGroupSnapshot(slug, { ...prev, hiddenSeries: nextHidden });
+  setGroupSnapshot(slug, { ...prev, hiddenSeries: nextHidden, shownSeries: nextShown });
 }
 
 /** The shared empty snapshot, for islands that have no enclosing group. */
@@ -442,13 +454,51 @@ export function emptyGroupSnapshot(): GroupSnapshot {
   return EMPTY_GROUP;
 }
 
-/** Toggle a single series label in/out of the group's hidden set. */
+/** Effective visibility after the group override falls back to global state. */
+export function groupSeriesIsVisible(
+  snapshot: GroupSnapshot,
+  label: string,
+  global: GlobalFilterSnapshot = globalSnapshot,
+): boolean {
+  const defaultVisible = seriesPassesFilter(
+    snapshot.knownSeries[label],
+    global.active,
+    global.universe,
+  );
+  return seriesPassesGroupFilter(snapshot, label, defaultVisible);
+}
+
+function setSeriesVisibility(
+  snapshot: GroupSnapshot,
+  labels: readonly string[],
+  visible: boolean,
+): Pick<GroupSnapshot, 'hiddenSeries' | 'shownSeries'> {
+  const selected = new Set(labels);
+  let hiddenSeries = snapshot.hiddenSeries.filter((label) => !selected.has(label));
+  let shownSeries = snapshot.shownSeries.filter((label) => !selected.has(label));
+  if (visible) {
+    shownSeries = [
+      ...shownSeries,
+      ...labels.filter((label) => {
+        const defaultVisible = seriesPassesFilter(
+          snapshot.knownSeries[label],
+          globalSnapshot.active,
+          globalSnapshot.universe,
+        );
+        return !defaultVisible && !shownSeries.includes(label);
+      }),
+    ];
+  } else {
+    hiddenSeries = [...hiddenSeries, ...labels.filter((label) => !hiddenSeries.includes(label))];
+  }
+  return { hiddenSeries, shownSeries };
+}
+
+/** Toggle one series against its effective global-plus-local visibility. */
 export function toggleGroupSeries(slug: string, label: string): void {
   const prev = groupStore(slug).snapshot;
-  const hiddenSeries = prev.hiddenSeries.includes(label)
-    ? prev.hiddenSeries.filter((l) => l !== label)
-    : [...prev.hiddenSeries, label];
-  setGroupSnapshot(slug, { ...prev, hiddenSeries });
+  const overrides = setSeriesVisibility(prev, [label], !groupSeriesIsVisible(prev, label));
+  setGroupSnapshot(slug, { ...prev, ...overrides });
 }
 
 /**
@@ -465,17 +515,15 @@ export function applyGroupMacro(slug: string, dim: 'engine' | 'format', value: s
   if (matching.length === 0) {
     return;
   }
-  const allVisible = matching.every((l) => !prev.hiddenSeries.includes(l));
-  const hiddenSeries = allVisible
-    ? [...prev.hiddenSeries, ...matching.filter((l) => !prev.hiddenSeries.includes(l))]
-    : prev.hiddenSeries.filter((l) => !matching.includes(l));
-  setGroupSnapshot(slug, { ...prev, hiddenSeries });
+  const allVisible = matching.every((label) => groupSeriesIsVisible(prev, label));
+  const overrides = setSeriesVisibility(prev, matching, !allVisible);
+  setGroupSnapshot(slug, { ...prev, ...overrides });
 }
 
 /** Clear the group's series filter (the `'*'` reset chip). */
 export function clearGroupSeriesFilter(slug: string): void {
   const prev = groupStore(slug).snapshot;
-  setGroupSnapshot(slug, { ...prev, hiddenSeries: [] });
+  setGroupSnapshot(slug, { ...prev, hiddenSeries: [], shownSeries: [] });
 }
 
 /** Set the group-level Y override broadcast to non-sticky charts. */
@@ -489,7 +537,13 @@ export function setGroupY(slug: string, y: 'linear' | 'log'): void {
  * choices are intentionally NOT cleared, matching the v3 reset semantics. */
 export function resetGroup(slug: string): void {
   const prev = groupStore(slug).snapshot;
-  setGroupSnapshot(slug, { ...prev, hiddenSeries: [], groupY: null, showEmptyCharts: false });
+  setGroupSnapshot(slug, {
+    ...prev,
+    hiddenSeries: [],
+    shownSeries: [],
+    groupY: null,
+    showEmptyCharts: false,
+  });
 }
 
 /**

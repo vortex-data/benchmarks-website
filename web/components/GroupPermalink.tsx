@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { getGroupSnapshot } from '@/lib/chart-store';
-import { GROUP_FILTER_PARAM, HIDDEN_SERIES_PARAM } from '@/lib/group-filter';
+import { GROUP_FILTER_PARAM, HIDDEN_SERIES_PARAM, SHOWN_SERIES_PARAM } from '@/lib/group-filter';
 
 /** How long the copied-confirmation state stays visible, in milliseconds. */
 const COPIED_FEEDBACK_MS = 1500;
@@ -14,9 +14,9 @@ const COPIED_FEEDBACK_MS = 1500;
 /**
  * Build the shareable URL for a group: the landing page with the group's
  * human-readable anchor (see `lib/anchor.ts`) as the fragment. When the group
- * has a local series filter, repeated `hide` parameters preserve it and a
- * `group` parameter identifies the owning group. Other query parameters, such
- * as the global engine and format filters, stay unchanged.
+ * has local series overrides, repeated `hide` and `show` parameters preserve
+ * them and a `group` parameter carries the same readable anchor. Other query
+ * parameters, such as the global engine and format filters, stay unchanged.
  * [`GroupSection`] stamps the anchor as the section's `id`, so the fragment is
  * a real anchor even without JavaScript; with JavaScript, [`GroupNav`]'s
  * hash-jump effect also expands the group's disclosure on load.
@@ -29,17 +29,21 @@ const COPIED_FEEDBACK_MS = 1500;
  */
 export function groupPermalinkUrl(
   anchor: string,
-  groupSlug: string,
   hiddenSeries: readonly string[],
+  shownSeries: readonly string[],
   loc: Pick<Location, 'origin' | 'pathname' | 'search'>,
 ): string {
   const url = new URL(`${loc.origin}${loc.pathname}${loc.search}`);
   url.searchParams.delete(GROUP_FILTER_PARAM);
   url.searchParams.delete(HIDDEN_SERIES_PARAM);
-  if (hiddenSeries.length > 0) {
-    url.searchParams.set(GROUP_FILTER_PARAM, groupSlug);
+  url.searchParams.delete(SHOWN_SERIES_PARAM);
+  if (hiddenSeries.length > 0 || shownSeries.length > 0) {
+    url.searchParams.set(GROUP_FILTER_PARAM, anchor);
     for (const label of [...new Set(hiddenSeries)].sort()) {
       url.searchParams.append(HIDDEN_SERIES_PARAM, label);
+    }
+    for (const label of [...new Set(shownSeries)].sort()) {
+      url.searchParams.append(SHOWN_SERIES_PARAM, label);
     }
   }
   return `${url.origin}${url.pathname}${url.search}#${encodeURIComponent(anchor)}`;
@@ -48,7 +52,7 @@ export function groupPermalinkUrl(
 /**
  * The copy-link button in a group's summary header. Clicking it copies the
  * group's permalink (see [`groupPermalinkUrl`]) to the clipboard, including
- * its current hidden-series filter. It mirrors the URL into the address bar
+ * its current series overrides. It mirrors the URL into the address bar
  * via `history.replaceState` (so the URL is shareable even where the Clipboard
  * API is unavailable, e.g. plain-HTTP dev hosts), and swaps the link glyph for
  * a checkmark for a moment as confirmation.
@@ -91,10 +95,11 @@ export function GroupPermalink({
         // preventDefault keeps the copy action from also collapsing the group.
         e.preventDefault();
         e.stopPropagation();
+        const snapshot = getGroupSnapshot(groupSlug);
         const url = groupPermalinkUrl(
           anchor,
-          groupSlug,
-          getGroupSnapshot(groupSlug).hiddenSeries,
+          snapshot.hiddenSeries,
+          snapshot.shownSeries,
           window.location,
         );
         // Reflect the URL in the address bar first: it is the no-clipboard

@@ -612,9 +612,11 @@ describe('filter helpers', () => {
     expect(seriesPassesFilter({ engine: 'duckdb' }, active, universe)).toBe(true);
   });
 
-  it('applies the per-group hidden-series filter by label', () => {
-    expect(seriesPassesGroupFilter({ hiddenSeries: ['a'] }, 'a')).toBe(false);
-    expect(seriesPassesGroupFilter({ hiddenSeries: ['a'] }, 'b')).toBe(true);
+  it('applies per-group overrides before the fallback visibility', () => {
+    const filter = { hiddenSeries: ['a'], shownSeries: ['lance'] };
+    expect(seriesPassesGroupFilter(filter, 'a')).toBe(false);
+    expect(seriesPassesGroupFilter(filter, 'lance', false)).toBe(true);
+    expect(seriesPassesGroupFilter(filter, 'b', false)).toBe(false);
     expect(seriesPassesGroupFilter(null, 'a')).toBe(true);
   });
 });

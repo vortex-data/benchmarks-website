@@ -5,7 +5,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { GroupToolbar } from '@/components/GroupToolbar';
-import { noteChartRecentData, setShowEmptyCharts } from '@/lib/chart-store';
+import {
+  initGlobalFilter,
+  noteChartRecentData,
+  noteGroupSeries,
+  setShowEmptyCharts,
+  toggleGroupSeries,
+} from '@/lib/chart-store';
 
 const UNIVERSE = { engines: ['datafusion', 'duckdb'], formats: ['parquet', 'vortex'] };
 
@@ -73,5 +79,21 @@ describe('GroupToolbar empty-charts toggle', () => {
     html = renderToStaticMarkup(<GroupToolbar groupSlug={slug} universe={UNIVERSE} />);
     expect(html).toContain('Hide 1 empty chart');
     expect(html).toMatch(/data-role="group-empty-toggle"[^>]*aria-pressed="true"/);
+  });
+});
+
+describe('GroupToolbar cascading filters', () => {
+  it('lets a series chip restore a globally hidden format', () => {
+    const slug = 'toolbar-global-fallback';
+    const universe = { ...UNIVERSE, formats: [...UNIVERSE.formats, 'lance'] };
+    initGlobalFilter(universe, [], []);
+    noteGroupSeries(slug, { lance: { format: 'lance' } });
+
+    let html = renderToStaticMarkup(<GroupToolbar groupSlug={slug} universe={universe} />);
+    expect(html).toMatch(/data-group-filter="series" data-value="lance" aria-pressed="false"/);
+
+    toggleGroupSeries(slug, 'lance');
+    html = renderToStaticMarkup(<GroupToolbar groupSlug={slug} universe={universe} />);
+    expect(html).toMatch(/data-group-filter="series" data-value="lance" aria-pressed="true"/);
   });
 });
