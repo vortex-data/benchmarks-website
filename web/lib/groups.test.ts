@@ -108,14 +108,8 @@ describe.skipIf(!dockerAvailable())(
       expect(byKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
       expect(byKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
       expect(byKey.get('decode:lance')?.ratio).toBeCloseTo(0.5, 6);
-      expect(byKey.get('encode:lance')?.throughputGbS).toBeCloseTo(8_000 / 36_000, 6);
-      expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(8_000 / 20_000, 6);
-      expect(byKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
-        208_000 / 109_000,
-        6,
-      );
       const json = JSON.stringify(summary);
-      expect(json).toContain('"throughputGbS"');
+      expect(json).not.toContain('"throughputGbS"');
       expect(json).toContain('"rankings"');
     });
 
@@ -134,10 +128,8 @@ describe.skipIf(!dockerAvailable())(
         'lance',
       ]);
       expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
-      expect(summary.rankings[0].totalBytes).toBeCloseTo(104_000, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
-      expect(summary.rankings[2].totalBytes).toBeCloseTo(16_000, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {
@@ -398,7 +390,6 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     expect(timeByKey.get('encode:parquet')?.ratio).toBeCloseTo(1.0, 6);
     expect(timeByKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
     expect(timeByKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
-    expect(timeByKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(4.0, 6);
 
     const size = expectDefined(
       await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
@@ -412,7 +403,6 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       'parquet',
     ]);
     expect(size.rankings[0].ratio).toBeCloseTo(0.25, 6);
-    expect(size.rankings[0].totalBytes).toBeCloseTo(1_000, 6);
     expect(size.rankings[1].ratio).toBeCloseTo(1.0, 6);
   });
 
@@ -441,7 +431,6 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       'Vortex compression ranking',
     );
     expect(vortexTime.ratio).toBeCloseTo(4.0, 6);
-    expect(vortexTime.throughputGbS).toBeCloseTo(8.0, 6);
 
     const size = expectDefined(
       await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
@@ -455,7 +444,6 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       'Vortex compression-size ranking',
     );
     expect(vortexSize.ratio).toBeCloseTo(0.25, 6);
-    expect(vortexSize.totalBytes).toBe(2_000);
   });
 
   it('aggregates decode at the encode-derived timestamp, not decode’s own latest', async () => {
@@ -501,7 +489,6 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       'decode:parquet',
     ]);
     expect(summary.rankings[0].ratio).toBeCloseTo(2.0, 6);
-    expect(summary.rankings[0].throughputGbS).toBeUndefined();
   });
 
   it('applies the 300_000 penalty floor so a missing query flips the ranking', async () => {

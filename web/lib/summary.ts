@@ -83,8 +83,6 @@ export interface CompressionRanking {
   operation: 'encode' | 'decode';
   /** Geomean throughput ratio to Parquet for shared datasets. */
   ratio: number;
-  /** Aggregate throughput in decimal gigabytes per second. */
-  throughputGbS?: number;
 }
 
 /** One format in the compression size summary. */
@@ -93,8 +91,6 @@ export interface CompressionSizeRanking {
   name: string;
   /** Geomean size ratio to Parquet for shared datasets. */
   ratio: number;
-  /** Sum of the compressed sizes for shared datasets. */
-  totalBytes: number;
 }
 
 /**
@@ -253,8 +249,6 @@ async function collectCompressionSummary(): Promise<Summary | null> {
       name: string;
       operation: 'encode' | 'decode';
       ratios: number[];
-      totalBytes: number;
-      totalNs: number;
     }
   >();
   for (const row of rows) {
@@ -266,14 +260,8 @@ async function collectCompressionSummary(): Promise<Summary | null> {
       name: row.format,
       operation: row.op,
       ratios: [],
-      totalBytes: 0,
-      totalNs: 0,
     };
     aggregate.ratios.push(row.parquetNs / row.valueNs);
-    if (row.basisBytes !== null && row.basisBytes > 0 && Number.isFinite(row.basisBytes)) {
-      aggregate.totalBytes += row.basisBytes;
-      aggregate.totalNs += row.valueNs;
-    }
     grouped.set(key, aggregate);
   }
   const rankings: CompressionRanking[] = [];
@@ -282,16 +270,11 @@ async function collectCompressionSummary(): Promise<Summary | null> {
     if (ratio === null) {
       continue;
     }
-    const ranking: CompressionRanking = {
+    rankings.push({
       name: aggregate.name,
       operation: aggregate.operation,
       ratio,
-    };
-    if (aggregate.totalBytes > 0 && aggregate.totalNs > 0) {
-      // One byte per nanosecond equals one decimal gigabyte per second.
-      ranking.throughputGbS = aggregate.totalBytes / aggregate.totalNs;
-    }
-    rankings.push(ranking);
+    });
   }
   const operationRank = (op: 'encode' | 'decode'): number => (op === 'encode' ? 0 : 1);
   rankings.sort((a, b) => {
@@ -308,14 +291,14 @@ async function collectCompressionSummary(): Promise<Summary | null> {
     type: 'compression',
     title: 'Compression Throughput',
     rankings,
-    explanation: 'Geomean throughput ratio to Parquet | Aggregate throughput (higher is better)',
+    explanation: 'Geomean throughput ratio to Parquet (higher is better)',
   };
 }
 
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot.
- * Every sample uses Parquet timing and size from the same commit.
+ * Every sample uses Parquet timing from the same commit.
  */
 async function compressionSamples(): Promise<
   Array<{
@@ -323,7 +306,6 @@ async function compressionSamples(): Promise<
     op: string;
     valueNs: number;
     parquetNs: number;
-    basisBytes: number | null;
   }>
 > {
   const text = `
@@ -365,7 +347,7 @@ async function compressionSamples(): Promise<
                 CASE WHEN op = 'encode' THEN 0 ELSE 1 END,
                 ts DESC, commit_sha DESC
     ), selected AS (
-      SELECT pairs.format, pairs.op, pairs.commit_sha, pairs.value_ns,
+      SELECT pairs.format, pairs.op, pairs.value_ns,
              pairs.parquet_ns, pairs.dataset, pairs.dataset_variant
         FROM pairs
         JOIN snapshot_policy policy ON policy.format = pairs.format
@@ -376,15 +358,8 @@ async function compressionSamples(): Promise<
     SELECT selected.format AS format,
            selected.op AS op,
            selected.value_ns AS "valueNs",
-           selected.parquet_ns AS "parquetNs",
-           s.value_bytes::float8 AS "basisBytes"
+           selected.parquet_ns AS "parquetNs"
       FROM selected
-      LEFT JOIN compression_sizes s
-        ON s.commit_sha = selected.commit_sha
-       AND s.dataset = selected.dataset
-       AND s.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
-       AND s.format = $4
-       AND s.value_bytes > 0
      ORDER BY selected.op, selected.format, selected.dataset,
               selected.dataset_variant NULLS FIRST
   `;
@@ -394,25 +369,23 @@ async function compressionSamples(): Promise<
       op: string;
       valueNs: number;
       parquetNs: number;
-      basisBytes: number | null;
     }>(text, compressionSummaryQueryParams())
   ).rows;
 }
 
 async function collectCompressionSizeSummary(): Promise<Summary | null> {
   const rows = await compressionSizeSamples();
-  const grouped = new Map<string, { ratios: number[]; totalBytes: number }>();
+  const grouped = new Map<string, number[]>();
   for (const row of rows) {
-    const aggregate = grouped.get(row.format) ?? { ratios: [], totalBytes: 0 };
-    aggregate.ratios.push(row.valueBytes / row.parquetBytes);
-    aggregate.totalBytes += row.valueBytes;
-    grouped.set(row.format, aggregate);
+    const ratios = grouped.get(row.format) ?? [];
+    ratios.push(row.valueBytes / row.parquetBytes);
+    grouped.set(row.format, ratios);
   }
   const rankings: CompressionSizeRanking[] = [];
-  for (const [name, aggregate] of grouped) {
-    const ratio = geoMean(aggregate.ratios);
+  for (const [name, ratios] of grouped) {
+    const ratio = geoMean(ratios);
     if (ratio !== null) {
-      rankings.push({ name, ratio, totalBytes: aggregate.totalBytes });
+      rankings.push({ name, ratio });
     }
   }
   rankings.sort((a, b) => a.ratio - b.ratio || compareCodeUnits(a.name, b.name));
@@ -423,7 +396,7 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
     type: 'compressionSize',
     title: 'Compression Size Summary',
     rankings,
-    explanation: 'Geomean size ratio to Parquet | Total compressed size (lower is better)',
+    explanation: 'Geomean size ratio to Parquet (lower is better)',
   };
 }
 

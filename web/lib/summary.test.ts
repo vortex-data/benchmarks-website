@@ -16,7 +16,7 @@ describe('compression summaries', () => {
     query.mockReset();
   });
 
-  it('uses geometric mean ratios and raw byte sums', async () => {
+  it('uses geometric mean size ratios', async () => {
     query.mockResolvedValueOnce({
       rows: [
         { format: 'vortex-file-compressed', valueBytes: 1, parquetBytes: 4 },
@@ -32,11 +32,9 @@ describe('compression summaries', () => {
     }
     const byFormat = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
 
-    // sqrt((1 / 4) * (900 / 100)) is 1.5. The raw Vortex sizes sum to 901 bytes.
+    // sqrt((1 / 4) * (900 / 100)) is 1.5.
     expect(byFormat.get('vortex-file-compressed')?.ratio).toBeCloseTo(1.5, 6);
-    expect(byFormat.get('vortex-file-compressed')?.totalBytes).toBe(901);
     expect(byFormat.get('parquet')?.ratio).toBeCloseTo(1, 6);
-    expect(byFormat.get('parquet')?.totalBytes).toBe(104);
   });
 
   it('applies one extensible snapshot policy to timings and sizes', async () => {
