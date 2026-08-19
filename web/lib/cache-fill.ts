@@ -8,7 +8,7 @@ import { getPool } from '@/lib/db';
 // discovery and summary pass.
 const GROUP_CACHE_FILL_LOCK = [0x62656e63, 0x67727073] as const;
 
-const CACHE_FILL_RETRY_DELAYS_MS = [250, 750, 2_000, 5_000] as const;
+const CACHE_FILL_RETRY_DELAYS_MS = [250, 750, 2_000, 4_000, 8_000] as const;
 
 /** Another process is already rebuilding a group cache entry. */
 export class GroupCacheFillInProgressError extends Error {
