@@ -57,7 +57,9 @@ describe('compression summaries', () => {
       expect(text).toContain('format = ANY($1::text[])');
       expect(text).toContain('format = ANY($2::text[])');
       expect(text).toContain('snapshot_policy');
+      expect(text).toContain('snapshot_commits');
       expect(text).toContain('latest_snapshots');
+      expect(text).toContain('DISTINCT ON (anchor_format)');
       expect(text).toContain('latest.commit_sha = pairs.commit_sha');
       expect(text).not.toContain('latest.ts = pairs.ts');
       expect(text).not.toContain('ROW_NUMBER()');

@@ -353,21 +353,17 @@ async function compressionSamples(): Promise<
       SELECT format,
              CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
         FROM unnest($1::text[]) AS configured(format)
-    ), latest_snapshot_times AS (
-      SELECT policy.anchor_format,
-             MAX(pairs.ts) FILTER (WHERE pairs.op = 'encode') AS encode_ts,
-             MAX(pairs.ts) FILTER (WHERE pairs.op = 'decode') AS decode_ts
+    ), snapshot_commits AS (
+      SELECT policy.anchor_format, pairs.op, pairs.ts, pairs.commit_sha
         FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
-        LEFT JOIN pairs ON pairs.format = policy.anchor_format
-       GROUP BY policy.anchor_format
+        JOIN pairs ON pairs.format = policy.anchor_format
+       GROUP BY policy.anchor_format, pairs.op, pairs.ts, pairs.commit_sha
     ), latest_snapshots AS (
-      SELECT latest.anchor_format, MAX(pairs.commit_sha) AS commit_sha
-        FROM latest_snapshot_times latest
-        JOIN pairs
-          ON pairs.format = latest.anchor_format
-         AND pairs.ts = COALESCE(latest.encode_ts, latest.decode_ts)
-         AND pairs.op = CASE WHEN latest.encode_ts IS NOT NULL THEN 'encode' ELSE 'decode' END
-       GROUP BY latest.anchor_format
+      SELECT DISTINCT ON (anchor_format) anchor_format, commit_sha
+        FROM snapshot_commits
+       ORDER BY anchor_format,
+                CASE WHEN op = 'encode' THEN 0 ELSE 1 END,
+                ts DESC, commit_sha DESC
     ), selected AS (
       SELECT pairs.format, pairs.op, pairs.commit_sha, pairs.value_ns,
              pairs.parquet_ns, pairs.dataset, pairs.dataset_variant
@@ -463,18 +459,15 @@ async function compressionSizeSamples(): Promise<
       SELECT format,
              CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
         FROM unnest($1::text[]) AS configured(format)
-    ), latest_snapshot_times AS (
-      SELECT policy.anchor_format, MAX(pairs.ts) AS ts
+    ), snapshot_commits AS (
+      SELECT policy.anchor_format, pairs.ts, pairs.commit_sha
         FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
-        LEFT JOIN pairs ON pairs.format = policy.anchor_format
-       GROUP BY policy.anchor_format
+        JOIN pairs ON pairs.format = policy.anchor_format
+       GROUP BY policy.anchor_format, pairs.ts, pairs.commit_sha
     ), latest_snapshots AS (
-      SELECT latest.anchor_format, MAX(pairs.commit_sha) AS commit_sha
-        FROM latest_snapshot_times latest
-        JOIN pairs
-          ON pairs.format = latest.anchor_format
-         AND pairs.ts = latest.ts
-       GROUP BY latest.anchor_format
+      SELECT DISTINCT ON (anchor_format) anchor_format, commit_sha
+        FROM snapshot_commits
+       ORDER BY anchor_format, ts DESC, commit_sha DESC
     ), selected AS (
       SELECT pairs.format, pairs.value_bytes, pairs.parquet_bytes,
              pairs.dataset, pairs.dataset_variant
