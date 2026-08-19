@@ -31,6 +31,8 @@ export interface DbConfig {
   poolMax: number;
   /** Idle-connection timeout (ms) for the pg pool; see `resolveIdleTimeoutMillis`. */
   idleTimeoutMillis: number;
+  /** Per-statement server timeout (ms); see `resolveStatementTimeoutMillis`. */
+  statementTimeoutMillis: number;
   /** When defined, IAM token generation is bypassed in favor of this password. */
   staticPassword: string | undefined;
 }
@@ -78,6 +80,7 @@ export function resolveSsl(): PoolConfig['ssl'] {
 
 /** Default pg pool idle-connection timeout: 5 minutes, see `resolveIdleTimeoutMillis`. */
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
+const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 
 /**
  * Resolves the pool's idle-connection timeout in milliseconds from
@@ -107,6 +110,25 @@ export function resolveIdleTimeoutMillis(): number {
   return value;
 }
 
+/**
+ * Resolves the PostgreSQL statement timeout in milliseconds. The timeout runs
+ * on the server, so PostgreSQL cancels abandoned work when a request times out
+ * while its pooled connection remains alive.
+ */
+export function resolveStatementTimeoutMillis(): number {
+  const raw = process.env.BENCH_DB_STATEMENT_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_STATEMENT_TIMEOUT_MS;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `Invalid \`BENCH_DB_STATEMENT_TIMEOUT_MS\` \`${raw}\`; expected a non-negative number of milliseconds.`,
+    );
+  }
+  return value;
+}
+
 function readConfig(): DbConfig {
   const staticPassword = process.env.BENCH_DB_PASSWORD;
   return {
@@ -118,6 +140,7 @@ function readConfig(): DbConfig {
     ssl: resolveSsl(),
     poolMax: Number(process.env.BENCH_DB_POOL_MAX ?? '8'),
     idleTimeoutMillis: resolveIdleTimeoutMillis(),
+    statementTimeoutMillis: resolveStatementTimeoutMillis(),
     staticPassword: staticPassword === '' ? undefined : staticPassword,
   };
 }
@@ -159,6 +182,7 @@ function createPool(config: DbConfig = readConfig()): Pool {
     ssl: config.ssl,
     max: config.poolMax,
     idleTimeoutMillis: config.idleTimeoutMillis,
+    statement_timeout: config.statementTimeoutMillis,
   });
 }
 

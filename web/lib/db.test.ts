@@ -12,6 +12,7 @@ import {
   requireEnv,
   resetPool,
   resolveIdleTimeoutMillis,
+  resolveStatementTimeoutMillis,
   resolveSsl,
   sql,
   type DbConfig,
@@ -73,6 +74,7 @@ describe('db IAM auth path (mocked rds-signer)', () => {
     ssl: false,
     poolMax: 4,
     idleTimeoutMillis: 300000,
+    statementTimeoutMillis: 30000,
     staticPassword: undefined,
   };
 
@@ -188,6 +190,33 @@ describe('resolveIdleTimeoutMillis', () => {
   });
 });
 
+describe('resolveStatementTimeoutMillis', () => {
+  afterEach(() => {
+    delete process.env.BENCH_DB_STATEMENT_TIMEOUT_MS;
+  });
+
+  it('defaults to 30000 ms when unset or empty', () => {
+    delete process.env.BENCH_DB_STATEMENT_TIMEOUT_MS;
+    expect(resolveStatementTimeoutMillis()).toBe(30000);
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '';
+    expect(resolveStatementTimeoutMillis()).toBe(30000);
+  });
+
+  it('honors a numeric override and accepts 0', () => {
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '45000';
+    expect(resolveStatementTimeoutMillis()).toBe(45000);
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '0';
+    expect(resolveStatementTimeoutMillis()).toBe(0);
+  });
+
+  it('rejects invalid and negative values', () => {
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = 'later';
+    expect(() => resolveStatementTimeoutMillis()).toThrow(/BENCH_DB_STATEMENT_TIMEOUT_MS/);
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '-1';
+    expect(() => resolveStatementTimeoutMillis()).toThrow(/BENCH_DB_STATEMENT_TIMEOUT_MS/);
+  });
+});
+
 describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', () => {
   const ENV_KEYS = [
     'BENCH_DB_HOST',
@@ -196,6 +225,7 @@ describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', 
     'BENCH_DB_PASSWORD',
     'BENCH_DB_SSL',
     'BENCH_DB_IDLE_TIMEOUT_MS',
+    'BENCH_DB_STATEMENT_TIMEOUT_MS',
     'BENCH_DB_PORT',
     'BENCH_DB_REGION',
     'BENCH_DB_POOL_MAX',
@@ -215,18 +245,22 @@ describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', 
     }
   });
 
-  it('uses the resolved idleTimeoutMillis as the pool option', () => {
+  it('uses the resolved timeouts as pool options', () => {
     process.env.BENCH_DB_HOST = 'localhost';
     process.env.BENCH_DB_NAME = 'bench';
     process.env.BENCH_DB_USER = 'bench_reader';
     process.env.BENCH_DB_PASSWORD = 'fixture-pw'; // skips the IAM/Signer path
     process.env.BENCH_DB_SSL = 'disable'; // avoids the BENCH_DB_CA requirement
     process.env.BENCH_DB_IDLE_TIMEOUT_MS = '123456';
+    process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '23456';
 
     // `pg`'s Pool exposes the resolved construction options at runtime but the
     // types do not surface `options`, so read it through a narrow cast.
-    const pool = getPool() as unknown as { options: { idleTimeoutMillis?: number } };
+    const pool = getPool() as unknown as {
+      options: { idleTimeoutMillis?: number; statement_timeout?: number };
+    };
     expect(pool.options.idleTimeoutMillis).toBe(123456);
+    expect(pool.options.statement_timeout).toBe(23456);
   });
 });
 
