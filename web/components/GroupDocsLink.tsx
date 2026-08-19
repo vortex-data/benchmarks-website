@@ -21,8 +21,8 @@ export function GroupDocsLink({ href, groupName }: { href: string; groupName: st
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title={`What the ${groupName} benchmark measures (vortex repository)`}
-      aria-label={`What the ${groupName} benchmark measures, in the vortex repository`}
+      title={`View a detailed description of the ${groupName} benchmark on GitHub`}
+      aria-label={`View a detailed description of the ${groupName} benchmark on GitHub`}
       onClick={(e) => {
         e.stopPropagation();
       }}
