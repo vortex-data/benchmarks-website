@@ -36,21 +36,20 @@ import type { GroupKey } from './slug';
  * Freshness buckets shared by the compression-time and compression-size summaries.
  *
  * Formats benchmarked with Vortex use its newest shared snapshot. Add another
- * intermittently benchmarked format to `LATEST_PER_DATASET`; both summaries
- * will use its newest result for each dataset and compare it with Parquet from
- * that same commit.
+ * intermittently benchmarked format to `INDEPENDENT_SNAPSHOT`; both summaries
+ * will use that format's newest complete snapshot and compare it with Parquet
+ * from the same commit.
  */
 const COMPRESSION_SHARED_SNAPSHOT_FORMATS = ['vortex-file-compressed', 'parquet'];
-const COMPRESSION_LATEST_PER_DATASET_FORMATS = ['lance'];
+const COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS = ['lance'];
 
 const COMPRESSION_SNAPSHOT_ANCHOR = 'vortex-file-compressed';
 const COMPRESSION_BASELINE = 'parquet';
 
-function compressionSummaryQueryParams(): [string[], string[], string[], string, string] {
+function compressionSummaryQueryParams(): [string[], string[], string, string] {
   return [
-    [...COMPRESSION_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_LATEST_PER_DATASET_FORMATS],
+    [...COMPRESSION_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS],
     COMPRESSION_SHARED_SNAPSHOT_FORMATS,
-    COMPRESSION_LATEST_PER_DATASET_FORMATS,
     COMPRESSION_SNAPSHOT_ANCHOR,
     COMPRESSION_BASELINE,
   ];
@@ -315,7 +314,7 @@ async function collectCompressionSummary(): Promise<Summary | null> {
 
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
- * Independently benchmarked formats use their latest result for each dataset.
+ * Each independently benchmarked format uses its own newest complete snapshot.
  * Every sample uses Parquet timing and size from the same commit.
  */
 async function compressionSamples(): Promise<
@@ -346,35 +345,31 @@ async function compressionSamples(): Promise<
         JOIN commits c ON c.commit_sha = t.commit_sha
        WHERE t.op IN ('encode', 'decode')
          AND t.format = ANY($1::text[])
-         AND p.format = $5
+         AND p.format = $4
          AND t.value_ns > 0
          AND p.value_ns > 0
          AND lower(t.dataset) NOT LIKE '%wide table%'
-    ), shared AS (
-      SELECT COALESCE(
-               MAX(ts) FILTER (WHERE op = 'encode' AND format = $4),
-               MAX(ts) FILTER (WHERE op = 'decode' AND format = $4)
+    ), snapshot_policy AS (
+      SELECT format,
+             CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
+        FROM unnest($1::text[]) AS configured(format)
+    ), latest_snapshots AS (
+      SELECT policy.anchor_format,
+             COALESCE(
+               MAX(pairs.ts) FILTER (WHERE pairs.op = 'encode'),
+               MAX(pairs.ts) FILTER (WHERE pairs.op = 'decode')
              ) AS ts
-        FROM pairs
-    ), ranked_latest_per_dataset_pairs AS (
-      SELECT pairs.*,
-             ROW_NUMBER() OVER (
-               PARTITION BY format, op, dataset, dataset_variant
-               ORDER BY ts DESC, commit_sha DESC
-             ) AS latest_rank
-        FROM pairs
-       WHERE format = ANY($3::text[])
+        FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
+        LEFT JOIN pairs ON pairs.format = policy.anchor_format
+       GROUP BY policy.anchor_format
     ), selected AS (
       SELECT pairs.format, pairs.op, pairs.commit_sha, pairs.value_ns,
              pairs.parquet_ns, pairs.dataset, pairs.dataset_variant
         FROM pairs
-        CROSS JOIN shared
-       WHERE pairs.format = ANY($2::text[])
-         AND pairs.ts = shared.ts
-      UNION ALL
-      SELECT format, op, commit_sha, value_ns, parquet_ns, dataset, dataset_variant
-        FROM ranked_latest_per_dataset_pairs
-       WHERE latest_rank = 1
+        JOIN snapshot_policy policy ON policy.format = pairs.format
+        JOIN latest_snapshots latest
+          ON latest.anchor_format = policy.anchor_format
+         AND latest.ts = pairs.ts
     )
     SELECT selected.format AS format,
            selected.op AS op,
@@ -386,7 +381,7 @@ async function compressionSamples(): Promise<
         ON s.commit_sha = selected.commit_sha
        AND s.dataset = selected.dataset
        AND s.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
-       AND s.format = $5
+       AND s.format = $4
        AND s.value_bytes > 0
      ORDER BY selected.op, selected.format, selected.dataset,
               selected.dataset_variant NULLS FIRST
@@ -432,8 +427,8 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
 
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
- * Independently benchmarked formats use their latest result for each dataset
- * and compare it with Parquet from the same commit.
+ * Each independently benchmarked format uses its own newest complete snapshot
+ * and compares it with Parquet from the same commit.
  */
 async function compressionSizeSamples(): Promise<
   Array<{ format: string; valueBytes: number; parquetBytes: number }>
@@ -454,33 +449,27 @@ async function compressionSizeSamples(): Promise<
          AND p.dataset_variant IS NOT DISTINCT FROM s.dataset_variant
         JOIN commits c ON c.commit_sha = s.commit_sha
        WHERE s.format = ANY($1::text[])
-         AND p.format = $5
+         AND p.format = $4
          AND s.value_bytes > 0
          AND p.value_bytes > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
-    ), shared AS (
-      SELECT MAX(ts) AS ts
-        FROM pairs
-       WHERE format = $4
-    ), ranked_latest_per_dataset_pairs AS (
-      SELECT pairs.*,
-             ROW_NUMBER() OVER (
-               PARTITION BY format, dataset, dataset_variant
-               ORDER BY ts DESC, commit_sha DESC
-             ) AS latest_rank
-        FROM pairs
-       WHERE format = ANY($3::text[])
+    ), snapshot_policy AS (
+      SELECT format,
+             CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
+        FROM unnest($1::text[]) AS configured(format)
+    ), latest_snapshots AS (
+      SELECT policy.anchor_format, MAX(pairs.ts) AS ts
+        FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
+        LEFT JOIN pairs ON pairs.format = policy.anchor_format
+       GROUP BY policy.anchor_format
     ), selected AS (
       SELECT pairs.format, pairs.value_bytes, pairs.parquet_bytes,
              pairs.dataset, pairs.dataset_variant
         FROM pairs
-        CROSS JOIN shared
-       WHERE pairs.format = ANY($2::text[])
-         AND pairs.ts = shared.ts
-      UNION ALL
-      SELECT format, value_bytes, parquet_bytes, dataset, dataset_variant
-        FROM ranked_latest_per_dataset_pairs
-       WHERE latest_rank = 1
+        JOIN snapshot_policy policy ON policy.format = pairs.format
+        JOIN latest_snapshots latest
+          ON latest.anchor_format = policy.anchor_format
+         AND latest.ts = pairs.ts
     )
     SELECT selected.format AS format,
            selected.value_bytes AS "valueBytes",

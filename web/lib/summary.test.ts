@@ -39,7 +39,7 @@ describe('compression summaries', () => {
     expect(byFormat.get('parquet')?.totalBytes).toBe(104);
   });
 
-  it('applies one extensible freshness policy to timings and sizes', async () => {
+  it('applies one extensible snapshot policy to timings and sizes', async () => {
     query.mockResolvedValue({ rows: [] });
 
     await collectGroupSummary({ k: 'CompressionTimeGroup' }, []);
@@ -49,7 +49,6 @@ describe('compression summaries', () => {
     const expectedParams = [
       ['vortex-file-compressed', 'parquet', 'lance'],
       ['vortex-file-compressed', 'parquet'],
-      ['lance'],
       'vortex-file-compressed',
       'parquet',
     ];
@@ -57,9 +56,11 @@ describe('compression summaries', () => {
       expect(params).toEqual(expectedParams);
       expect(text).toContain('format = ANY($1::text[])');
       expect(text).toContain('format = ANY($2::text[])');
-      expect(text).toContain('format = ANY($3::text[])');
-      // The SQL operates on policy buckets; adding another intermittent format
-      // must not require another hard-coded format branch.
+      expect(text).toContain('snapshot_policy');
+      expect(text).toContain('latest_snapshots');
+      expect(text).not.toContain('ROW_NUMBER()');
+      // Adding another independently benchmarked format must not require
+      // another hard-coded format branch or a per-dataset history scan.
       expect(text).not.toContain("format = 'lance'");
     }
   });
