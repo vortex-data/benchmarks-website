@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { Suspense } from 'react';
+
 import { Footer } from '@/components/Footer';
 import { GroupNav } from '@/components/GroupNav';
 import { GroupSection } from '@/components/GroupSection';
 import { Header } from '@/components/Header';
+import { HomeLoading } from '@/components/HomeLoading';
 import { groupAnchors } from '@/lib/anchor';
 import { parseFilterCsv, singleSearchParam } from '@/lib/chart-format';
 import { cachedFilterUniverse, cachedGroups } from '@/lib/data-cache';
@@ -42,6 +45,20 @@ export default async function Home({
   const initialEngines = parseFilterCsv(singleSearchParam(params.engine));
   const initialFormats = parseFilterCsv(singleSearchParam(params.format));
 
+  return (
+    <Suspense fallback={<HomeLoading />}>
+      <HomeContent initialEngines={initialEngines} initialFormats={initialFormats} />
+    </Suspense>
+  );
+}
+
+async function HomeContent({
+  initialEngines,
+  initialFormats,
+}: {
+  initialEngines: string[];
+  initialFormats: string[];
+}) {
   const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);
   // Human-readable permalink anchors, one per section in render order (see
   // lib/anchor.ts for why these are not the opaque API slugs).

@@ -25,17 +25,18 @@ configured. Keep it that way; the CI `test` job builds with no database on purpo
 
 Connection config is read by `lib/db.ts`:
 
-| Variable            | Required           | Meaning                                                                                                                                       |
-| ------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BENCH_DB_HOST`     | yes                | Postgres host.                                                                                                                                |
-| `BENCH_DB_NAME`     | yes                | Database name.                                                                                                                                |
-| `BENCH_DB_USER`     | yes                | Role to connect as.                                                                                                                           |
-| `BENCH_DB_PORT`     | no (5432)          | Port.                                                                                                                                         |
-| `BENCH_DB_PASSWORD` | no                 | Static password. When unset, each new connection authenticates with a freshly minted RDS IAM token instead.                                   |
-| `BENCH_DB_REGION`   | for IAM            | AWS region for the RDS IAM signer; required when no password is set. IAM token signing also needs AWS credentials in the runtime environment. |
-| `BENCH_DB_SSL`      | no (`verify-full`) | `verify-full` validates the certificate chain and hostname; `disable` is for local non-TLS containers only. Any other value fails loudly.     |
-| `BENCH_DB_CA`       | prod               | PEM contents of the Amazon RDS CA bundle; Node's trust store does not include the RDS roots, so `verify-full` against RDS fails without it.   |
-| `BENCH_DB_POOL_MAX` | no (8)             | Max pool connections per serverless instance; the per-render summary fan-out (`SUMMARY_CONCURRENCY`) is sized to this default.                |
+| Variable                        | Required           | Meaning                                                                                                                                       |
+| ------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BENCH_DB_HOST`                 | yes                | Postgres host.                                                                                                                                |
+| `BENCH_DB_NAME`                 | yes                | Database name.                                                                                                                                |
+| `BENCH_DB_USER`                 | yes                | Role to connect as.                                                                                                                           |
+| `BENCH_DB_PORT`                 | no (5432)          | Port.                                                                                                                                         |
+| `BENCH_DB_PASSWORD`             | no                 | Static password. When unset, each new connection authenticates with a freshly minted RDS IAM token instead.                                   |
+| `BENCH_DB_REGION`               | for IAM            | AWS region for the RDS IAM signer; required when no password is set. IAM token signing also needs AWS credentials in the runtime environment. |
+| `BENCH_DB_SSL`                  | no (`verify-full`) | `verify-full` validates the certificate chain and hostname; `disable` is for local non-TLS containers only. Any other value fails loudly.     |
+| `BENCH_DB_CA`                   | prod               | PEM contents of the Amazon RDS CA bundle; Node's trust store does not include the RDS roots, so `verify-full` against RDS fails without it.   |
+| `BENCH_DB_POOL_MAX`             | no (8)             | Max pool connections per serverless instance; the per-render summary fan-out (`SUMMARY_CONCURRENCY`) is sized to this default.                |
+| `BENCH_DB_STATEMENT_TIMEOUT_MS` | no (30000)         | PostgreSQL server-side timeout for each web statement. `0` disables the timeout.                                                              |
 
 ## CDN caching
 

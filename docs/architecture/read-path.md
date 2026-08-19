@@ -133,7 +133,14 @@ user, password, SSL mode, CA bundle). Production connects as the read-only
 `BENCH_DB_CA` (Node's trust store does not include the Amazon RDS roots, so this
 is required). The pool is a single process-wide instance cached on `globalThis`
 with a 5-minute idle timeout — long enough to survive the keep-warm cron's ping
-gap so idle requests don't pay a fresh TLS+auth connect.
+gap so idle requests don't pay a fresh TLS+auth connect. Each statement has a
+30-second server-side timeout, so a request timeout cannot leave unbounded work
+running in PostgreSQL.
+
+Group Data Cache fills share a PostgreSQL advisory lock across production and
+preview functions. One invocation runs the group discovery and summary work.
+Contenders release their connections and retry the Data Cache read with bounded
+backoff instead of issuing duplicate summary queries.
 
 `bench_read` uses a **static password** rather than RDS IAM auth because the
 Vercel runtime has no AWS credentials to mint an IAM token, and RDS `rds_iam`

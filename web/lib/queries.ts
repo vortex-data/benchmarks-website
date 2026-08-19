@@ -1081,13 +1081,14 @@ function discoverGroups(groupKind: GroupKind): Promise<Group[]> {
 
 /**
  * Bound on how many per-group summary queries run concurrently in
- * [`collectGroups`] (PR-5.1.5 fix e). Kept at the `BENCH_DB_POOL_MAX` default so
- * the in-flight summaries match the pool size; if the pool is smaller the excess
- * simply queues on `pg`'s acquire list (no error), and if larger the cap still
- * holds. Overlapping the N+1 summaries is what turns the sequential
+ * [`collectGroups`] (PR-5.1.5 fix e). Kept one below the `BENCH_DB_POOL_MAX`
+ * default because a cached fill holds one pool connection for its advisory
+ * lock. If the pool is smaller the excess simply queues on `pg`'s acquire list
+ * (no error), and if larger the cap still holds. Overlapping the N+1 summaries
+ * is what turns the sequential
  * sum-of-summaries into roughly the slowest-summary wall-clock.
  */
-const SUMMARY_CONCURRENCY = 8;
+const SUMMARY_CONCURRENCY = 7;
 
 /**
  * Map `items` through `fn` with at most `limit` promises in flight, preserving
