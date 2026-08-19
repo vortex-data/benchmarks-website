@@ -29,18 +29,3 @@ export function formatTimeNs(ns: number): string {
   }
   return `${ns.toFixed(0)} ns`;
 }
-
-/** Format a byte count with a compact decimal unit. */
-export function formatBytes(bytes: number): string {
-  const abs = Math.abs(bytes);
-  if (abs >= 1_000_000_000) {
-    return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-  }
-  if (abs >= 1_000_000) {
-    return `${(bytes / 1_000_000).toFixed(2)} MB`;
-  }
-  if (abs >= 1_000) {
-    return `${(bytes / 1_000).toFixed(2)} KB`;
-  }
-  return `${bytes.toFixed(0)} B`;
-}

@@ -508,8 +508,7 @@ function pickTimeUnit(ref: number | null): {
   return { multiplier: 1e-6, suffix: 'ms', decimals: 2 };
 }
 
-/** Decimal byte multiples keep chart sizes consistent with GB/s throughput.
- * Steps: B, KB, MB, GB, TB. */
+/** Decimal byte multiples for chart sizes. Steps: B, KB, MB, GB, TB. */
 function pickBytesUnit(ref: number | null): {
   multiplier: number;
   suffix: string;
