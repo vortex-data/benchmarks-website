@@ -58,6 +58,8 @@ describe('compression summaries', () => {
       expect(text).toContain('format = ANY($2::text[])');
       expect(text).toContain('snapshot_policy');
       expect(text).toContain('latest_snapshots');
+      expect(text).toContain('latest.commit_sha = pairs.commit_sha');
+      expect(text).not.toContain('latest.ts = pairs.ts');
       expect(text).not.toContain('ROW_NUMBER()');
       // Adding another independently benchmarked format must not require
       // another hard-coded format branch or a per-dataset history scan.

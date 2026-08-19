@@ -416,6 +416,48 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     expect(size.rankings[1].ratio).toBeCloseTo(1.0, 6);
   });
 
+  it('selects one commit when the latest timestamps collide', async () => {
+    const lowerSha = '4'.repeat(40);
+    const higherSha = '5'.repeat(40);
+    const timestamp = '2026-04-23T12:00:00Z';
+    await insertCommit(lowerSha, timestamp);
+    await insertCommit(higherSha, timestamp);
+    await insertCompTimePair(lowerSha, 'encode', 1_000, 2_000);
+    await insertCompTimePair(higherSha, 'encode', 1_000, 4_000);
+    await insertCompSizePair(lowerSha, 1_000, 2_000);
+    await insertCompSizePair(higherSha, 2_000, 8_000);
+
+    const time = expectDefined(
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      'compression-time summary',
+    );
+    if (time.type !== 'compression') {
+      throw new Error(`expected compression summary, got ${time.type}`);
+    }
+    const vortexTime = expectDefined(
+      time.rankings.find(
+        (ranking) => ranking.operation === 'encode' && ranking.name === 'vortex-file-compressed',
+      ),
+      'Vortex compression ranking',
+    );
+    expect(vortexTime.ratio).toBeCloseTo(4.0, 6);
+    expect(vortexTime.throughputGbS).toBeCloseTo(8.0, 6);
+
+    const size = expectDefined(
+      await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
+      'compression-size summary',
+    );
+    if (size.type !== 'compressionSize') {
+      throw new Error(`expected compressionSize summary, got ${size.type}`);
+    }
+    const vortexSize = expectDefined(
+      size.rankings.find((ranking) => ranking.name === 'vortex-file-compressed'),
+      'Vortex compression-size ranking',
+    );
+    expect(vortexSize.ratio).toBeCloseTo(0.25, 6);
+    expect(vortexSize.totalBytes).toBe(2_000);
+  });
+
   it('aggregates decode at the encode-derived timestamp, not decode’s own latest', async () => {
     // Encode pair only at the OLDER commit; decode pair only at the NEWER
     // commit. The summary timestamp is encode-derived, so the decode geomean is
