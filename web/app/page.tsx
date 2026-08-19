@@ -34,8 +34,8 @@ export const dynamic = 'force-dynamic';
  * counter).
  *
  * `?engine=` / `?format=` are the global filter's URL allowlists (CSV). A
- * `?group=` target plus repeated `?hide=` values restores the target group's
- * local hidden-series filter.
+ * A readable `?group=` anchor plus repeated `?hide=` / `?show=` values restores
+ * the target group's local series overrides.
  */
 export default async function Home({
   searchParams,
@@ -90,6 +90,11 @@ async function HomeContent({
             {groups.map((group, i) => {
               const startIndex = nextIndex;
               nextIndex += group.charts.length;
+              // Accept opaque values copied by the first permalink version,
+              // but generate readable anchors for every new link.
+              const ownsInitialFilter =
+                initialGroupFilter?.groupAnchor === anchors[i] ||
+                initialGroupFilter?.groupAnchor === group.slug;
               return (
                 <GroupSection
                   key={group.slug}
@@ -98,9 +103,10 @@ async function HomeContent({
                   startIndex={startIndex}
                   universe={universe}
                   initialHiddenSeries={
-                    initialGroupFilter?.groupSlug === group.slug
-                      ? initialGroupFilter.hiddenSeries
-                      : []
+                    ownsInitialFilter ? (initialGroupFilter?.hiddenSeries ?? []) : []
+                  }
+                  initialShownSeries={
+                    ownsInitialFilter ? (initialGroupFilter?.shownSeries ?? []) : []
                   }
                 />
               );

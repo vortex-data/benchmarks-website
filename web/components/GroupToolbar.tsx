@@ -10,16 +10,20 @@ import { DEFAULT_VISIBLE, type FilterUniverse } from '@/lib/chart-format';
 import {
   applyGroupMacro,
   clearGroupSeriesFilter,
+  getGlobalFilterSnapshot,
   getGroupSnapshot,
+  groupSeriesIsVisible,
   initGroupFilter,
   resetGroup,
   setGroupY,
   setShowEmptyCharts,
   subscribeGroup,
+  subscribeGlobalFilter,
   toggleGroupSeries,
 } from '@/lib/chart-store';
 
 const NO_INITIAL_HIDDEN_SERIES: string[] = [];
+const NO_INITIAL_SHOWN_SERIES: string[] = [];
 
 /**
  * The per-group toolbar between a group's summary card and its chart grid, the
@@ -39,19 +43,21 @@ const NO_INITIAL_HIDDEN_SERIES: string[] = [];
  * group store as charts in the group hydrate and surface their `series_meta`.
  *
  * Resolution layering (enforced by each chart island's `applyFilters`):
- * per-card legend overrides win, the per-group `hiddenSeries` filter hides
- * next, the global filter hides last. The Y broadcast skips charts whose
- * per-chart Y toolbar was clicked (sticky), and Reset intentionally clears
- * only the group state, never the per-card overrides, matching v3.
+ * per-card legend overrides win, explicit group show/hide choices come next,
+ * and the global filter supplies the default. The Y broadcast skips charts
+ * whose per-chart Y toolbar was clicked (sticky), and Reset intentionally
+ * clears only the group state, never the per-card overrides, matching v3.
  */
 export function GroupToolbar({
   groupSlug,
   universe,
   initialHiddenSeries = NO_INITIAL_HIDDEN_SERIES,
+  initialShownSeries = NO_INITIAL_SHOWN_SERIES,
 }: {
   groupSlug: string;
   universe: FilterUniverse;
   initialHiddenSeries?: string[];
+  initialShownSeries?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -67,12 +73,17 @@ export function GroupToolbar({
     () => getGroupSnapshot(groupSlug),
     () => getGroupSnapshot(groupSlug),
   );
+  const globalSnapshot = useSyncExternalStore(
+    subscribeGlobalFilter,
+    getGlobalFilterSnapshot,
+    getGlobalFilterSnapshot,
+  );
 
   // Restore a shared group permalink after mount. This preserves any series
   // metadata that chart hydration has already added to the same store.
   useEffect(() => {
-    initGroupFilter(groupSlug, initialHiddenSeries);
-  }, [groupSlug, initialHiddenSeries]);
+    initGroupFilter(groupSlug, initialHiddenSeries, initialShownSeries);
+  }, [groupSlug, initialHiddenSeries, initialShownSeries]);
 
   // Close on outside click and on Escape, mirroring the global dropdown.
   useEffect(() => {
@@ -101,7 +112,9 @@ export function GroupToolbar({
   // matching each chart's own default.
   const yVisual = snapshot.groupY === 'log' ? 'log' : 'linear';
   const knownLabels = Object.keys(snapshot.knownSeries).sort();
-  const hiddenCount = snapshot.hiddenSeries.length;
+  const hiddenCount = knownLabels.filter(
+    (label) => !groupSeriesIsVisible(snapshot, label, globalSnapshot),
+  ).length;
   const emptyCount = snapshot.emptyCharts.length;
 
   return (
@@ -159,7 +172,8 @@ export function GroupToolbar({
             dim="engine"
             universe={universe.engines}
             groupSlug={groupSlug}
-            snapshotHidden={snapshot.hiddenSeries}
+            snapshot={snapshot}
+            globalSnapshot={globalSnapshot}
             knownSeries={snapshot.knownSeries}
           />
           <MacroRow
@@ -167,7 +181,8 @@ export function GroupToolbar({
             dim="format"
             universe={universe.formats}
             groupSlug={groupSlug}
-            snapshotHidden={snapshot.hiddenSeries}
+            snapshot={snapshot}
+            globalSnapshot={globalSnapshot}
             knownSeries={snapshot.knownSeries}
           />
           <div className="global-filter-row group-series-row">
@@ -186,7 +201,7 @@ export function GroupToolbar({
                 `series_meta`; until then the row only shows the macros above. */}
             <div className="group-series-chips" data-role="group-series-chips">
               {knownLabels.map((label) => {
-                const isActive = !snapshot.hiddenSeries.includes(label);
+                const isActive = groupSeriesIsVisible(snapshot, label, globalSnapshot);
                 return (
                   <button
                     key={label}
@@ -249,14 +264,16 @@ function MacroRow({
   dim,
   universe,
   groupSlug,
-  snapshotHidden,
+  snapshot,
+  globalSnapshot,
   knownSeries,
 }: {
   label: string;
   dim: 'engine' | 'format';
   universe: string[];
   groupSlug: string;
-  snapshotHidden: string[];
+  snapshot: ReturnType<typeof getGroupSnapshot>;
+  globalSnapshot: ReturnType<typeof getGlobalFilterSnapshot>;
   knownSeries: Record<string, { engine?: string; format?: string }>;
 }) {
   return (
@@ -274,7 +291,9 @@ function MacroRow({
       </button>
       {universe.map((value) => {
         const matching = Object.keys(knownSeries).filter((l) => knownSeries[l]?.[dim] === value);
-        const isActive = matching.length > 0 && matching.every((l) => !snapshotHidden.includes(l));
+        const isActive =
+          matching.length > 0 &&
+          matching.every((value) => groupSeriesIsVisible(snapshot, value, globalSnapshot));
         return (
           <button
             key={value}

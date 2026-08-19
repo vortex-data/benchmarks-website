@@ -1044,15 +1044,25 @@ export function seriesPassesFilter(
   return true;
 }
 
-/** Whether a series label passes a per-group hidden-series filter. */
+/**
+ * Resolve a series label against its group-local override. An explicit local
+ * show or hide wins; otherwise the caller-provided global default applies.
+ */
 export function seriesPassesGroupFilter(
-  filter: { hiddenSeries: readonly string[] } | null | undefined,
+  filter: { hiddenSeries: readonly string[]; shownSeries: readonly string[] } | null | undefined,
   label: string,
+  defaultVisible = true,
 ): boolean {
-  if (!filter || !filter.hiddenSeries) {
+  if (!filter) {
+    return defaultVisible;
+  }
+  if (filter.shownSeries.includes(label)) {
     return true;
   }
-  return !filter.hiddenSeries.includes(label);
+  if (filter.hiddenSeries.includes(label)) {
+    return false;
+  }
+  return defaultVisible;
 }
 
 /**

@@ -11,6 +11,7 @@ import type { FilterUniverse } from '@/lib/chart-format';
 import type { Group } from '@/lib/queries';
 
 const NO_INITIAL_HIDDEN_SERIES: string[] = [];
+const NO_INITIAL_SHOWN_SERIES: string[] = [];
 
 /**
  * One group's landing-page section, the server-component port of
@@ -53,12 +54,14 @@ export function GroupSection({
   startIndex,
   universe,
   initialHiddenSeries = NO_INITIAL_HIDDEN_SERIES,
+  initialShownSeries = NO_INITIAL_SHOWN_SERIES,
 }: {
   group: Group;
   anchor: string;
   startIndex: number;
   universe: FilterUniverse;
   initialHiddenSeries?: string[];
+  initialShownSeries?: string[];
 }) {
   const chartCount = group.charts.length;
   // The ⓘ blurb's long form: the benchmark's explainer doc in the monorepo,
@@ -100,6 +103,7 @@ export function GroupSection({
         groupSlug={group.slug}
         universe={universe}
         initialHiddenSeries={initialHiddenSeries}
+        initialShownSeries={initialShownSeries}
       />
       <div className="chart-grid">
         {group.charts.map((link, i) => (

@@ -9,19 +9,24 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GroupPermalink, groupPermalinkUrl } from '@/components/GroupPermalink';
-import { toggleGroupSeries } from '@/lib/chart-store';
+import {
+  initGlobalFilter,
+  initGroupFilter,
+  noteGroupSeries,
+  toggleGroupSeries,
+} from '@/lib/chart-store';
 
 describe('groupPermalinkUrl', () => {
   it('joins origin, pathname, and the readable anchor fragment', () => {
     const loc = { origin: 'https://bench.vortex.dev', pathname: '/' };
-    expect(groupPermalinkUrl('random-access', 'random_access', [], { ...loc, search: '' })).toBe(
+    expect(groupPermalinkUrl('random-access', [], [], { ...loc, search: '' })).toBe(
       'https://bench.vortex.dev/#random-access',
     );
   });
 
   it('percent-encodes fragment-hostile anchor characters defensively', () => {
     const loc = { origin: 'https://bench.vortex.dev', pathname: '/' };
-    expect(groupPermalinkUrl('a#b c', 'group', [], { ...loc, search: '' })).toBe(
+    expect(groupPermalinkUrl('a#b c', [], [], { ...loc, search: '' })).toBe(
       'https://bench.vortex.dev/#a%23b%20c',
     );
   });
@@ -30,10 +35,10 @@ describe('groupPermalinkUrl', () => {
     const loc = {
       origin: 'https://bench.vortex.dev',
       pathname: '/',
-      search: '?engine=duckdb&group=old&hide=old-series',
+      search: '?engine=duckdb&group=old&hide=old-series&show=old-shown',
     };
-    expect(groupPermalinkUrl('random-access', 'random_access', ['z series', 'a'], loc)).toBe(
-      'https://bench.vortex.dev/?engine=duckdb&group=random_access&hide=a&hide=z+series#random-access',
+    expect(groupPermalinkUrl('random-access', ['z series', 'a'], ['lance'], loc)).toBe(
+      'https://bench.vortex.dev/?engine=duckdb&group=random-access&hide=a&hide=z+series&show=lance#random-access',
     );
   });
 });
@@ -82,6 +87,7 @@ describe('GroupPermalink click behavior', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (navigator as any).clipboard;
     window.history.replaceState(null, '', '/');
+    initGroupFilter('random_access', [], []);
   });
 
   /** Mount the button inside a real `<details>`/`<summary>` host, as on the
@@ -148,10 +154,26 @@ describe('GroupPermalink click behavior', () => {
     });
 
     expect(copiedText).toEqual([
-      `${window.location.origin}/?group=random_access&hide=datafusion+parquet&hide=duckdb%3Avortex#random-access`,
+      `${window.location.origin}/?group=random-access&hide=datafusion+parquet&hide=duckdb%3Avortex#random-access`,
     ]);
     expect(window.location.search).toBe(
-      '?group=random_access&hide=datafusion+parquet&hide=duckdb%3Avortex',
+      '?group=random-access&hide=datafusion+parquet&hide=duckdb%3Avortex',
     );
+  });
+
+  it('preserves a local override that restores a globally hidden series', () => {
+    const { button } = mount();
+    initGlobalFilter({ engines: [], formats: ['parquet', 'lance'] }, [], []);
+    noteGroupSeries('random_access', { lance: { format: 'lance' } });
+    toggleGroupSeries('random_access', 'lance');
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+
+    expect(copiedText).toEqual([
+      `${window.location.origin}/?group=random-access&show=lance#random-access`,
+    ]);
+    expect(window.location.search).toBe('?group=random-access&show=lance');
   });
 });
