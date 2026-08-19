@@ -75,6 +75,9 @@ describe('GroupSection', () => {
     );
     expect(html).toContain('class="group-docs-link"');
     expect(html).toContain(
+      'title="View a detailed description of the Random Access benchmark on GitHub"',
+    );
+    expect(html).toContain(
       'href="https://github.com/vortex-data/vortex/blob/develop/benchmarks/random-access-bench/README.md"',
     );
     expect(html).toContain('target="_blank"');

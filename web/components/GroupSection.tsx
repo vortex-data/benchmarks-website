@@ -62,8 +62,8 @@ export function GroupSection({
 }) {
   const chartCount = group.charts.length;
   // The ⓘ blurb's long form: the benchmark's explainer doc in the monorepo,
-  // derived from the dataset name inside the group's slug (`null` only if that
-  // slug does not parse).
+  // selected by the dataset name inside the group's slug (`null` if the slug
+  // does not parse or no matching explainer exists).
   const docUrl = groupDocUrl(group.slug);
   return (
     <section

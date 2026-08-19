@@ -18,35 +18,24 @@ function queryGroup(dataset: string) {
 }
 
 describe('groupDocPath', () => {
-  it('derives a SQL suite doc from the dataset name alone', () => {
-    // The convention, exercised by every suite that follows it. None of these
-    // needs an entry in the module.
-    for (const dataset of [
-      'clickbench',
-      'fineweb',
-      'gharchive',
-      'polarsignals',
-      'public-bi',
-      'spatialbench',
-      'statpopgen',
-    ]) {
-      expect(groupDocPath(queryGroup(dataset))).toBe(`vortex-bench/sql/${dataset}.md`);
+  it('mirrors every current SQL suite Benchmark::doc_path', () => {
+    const expected = {
+      appian: 'vortex-bench/sql/appian/README.md',
+      clickbench: 'vortex-bench/sql/clickbench.md',
+      'clickbench-sorted': 'vortex-bench/sql/clickbench.md#sorted-variant',
+      fineweb: 'vortex-bench/sql/fineweb.md',
+      gharchive: 'vortex-bench/sql/gharchive.md',
+      polarsignals: 'vortex-bench/sql/polarsignals.md',
+      'public-bi': 'vortex-bench/sql/public-bi.md',
+      spatialbench: 'vortex-bench/sql/spatialbench.md',
+      statpopgen: 'vortex-bench/sql/statpopgen.md',
+      tpcds: 'vortex-bench/sql/tpcds/README.md',
+      tpch: 'vortex-bench/sql/tpch/README.md',
+      vortex: 'vortex-bench/sql/vortex/README.md',
+    };
+    for (const [dataset, path] of Object.entries(expected)) {
+      expect(groupDocPath(queryGroup(dataset))).toBe(path);
     }
-  });
-
-  it('links a suite it has never heard of', () => {
-    // The point of the convention: a suite added upstream links itself.
-    expect(groupDocPath(queryGroup('some-new-suite'))).toBe('vortex-bench/sql/some-new-suite.md');
-  });
-
-  it('takes the override for suites that document themselves elsewhere', () => {
-    expect(groupDocPath(queryGroup('tpch'))).toBe('vortex-bench/sql/tpch/README.md');
-    expect(groupDocPath(queryGroup('tpcds'))).toBe('vortex-bench/sql/tpcds/README.md');
-    expect(groupDocPath(queryGroup('appian'))).toBe('vortex-bench/sql/appian/README.md');
-    expect(groupDocPath(queryGroup('vortex'))).toBe('vortex-bench/sql/vortex/README.md');
-    expect(groupDocPath(queryGroup('clickbench-sorted'))).toBe(
-      'vortex-bench/sql/clickbench.md#sorted-variant',
-    );
   });
 
   it('maps the three non-query families to their benchmark crate', () => {
@@ -58,17 +47,13 @@ describe('groupDocPath', () => {
     );
   });
 
-  it('falls back to the benchmarking guide where no suite doc exists', () => {
-    // Vector-search groups have no doc of their own upstream.
-    expect(groupDocPath({ k: 'VectorSearchGroup', dataset: 'sift-1m', layout: 'flat' })).toBe(
-      'docs/developer-guide/benchmarking.md',
-    );
+  it('returns null for vector search because upstream has no matching explainer', () => {
+    expect(groupDocPath({ k: 'VectorSearchGroup', dataset: 'sift-1m', layout: 'flat' })).toBeNull();
   });
 
-  it('refuses to spell a dataset that is not path-shaped into a path', () => {
-    for (const dataset of ['../../etc/passwd', 'two words', 'a/b', '', '#anchor']) {
-      expect(groupDocPath(queryGroup(dataset))).toBe('docs/developer-guide/benchmarking.md');
-    }
+  it('returns null instead of inventing a path for an unmapped SQL suite', () => {
+    expect(groupDocPath(queryGroup('some-new-suite'))).toBeNull();
+    expect(groupDocPath(queryGroup('../../etc/passwd'))).toBeNull();
   });
 });
 
@@ -102,5 +87,12 @@ describe('groupDocUrl', () => {
   it('returns null for a slug that does not parse', () => {
     expect(groupDocUrl('not-a-slug')).toBeNull();
     expect(groupDocUrl('qmg.!!!!')).toBeNull();
+  });
+
+  it('returns null for groups without a matching explainer', () => {
+    expect(groupDocUrl(groupKeyToSlug(queryGroup('some-new-suite')))).toBeNull();
+    expect(
+      groupDocUrl(groupKeyToSlug({ k: 'VectorSearchGroup', dataset: 'sift-1m', layout: 'flat' })),
+    ).toBeNull();
   });
 });
