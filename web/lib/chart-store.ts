@@ -424,6 +424,19 @@ export function getGroupSnapshot(slug: string): GroupSnapshot {
   return groupStore(slug).snapshot;
 }
 
+/** Seed one group's hidden-series filter from the current page URL. */
+export function initGroupFilter(slug: string, hiddenSeries: readonly string[]): void {
+  const prev = groupStore(slug).snapshot;
+  const nextHidden = [...new Set(hiddenSeries)];
+  if (
+    prev.hiddenSeries.length === nextHidden.length &&
+    prev.hiddenSeries.every((label, index) => label === nextHidden[index])
+  ) {
+    return;
+  }
+  setGroupSnapshot(slug, { ...prev, hiddenSeries: nextHidden });
+}
+
 /** The shared empty snapshot, for islands that have no enclosing group. */
 export function emptyGroupSnapshot(): GroupSnapshot {
   return EMPTY_GROUP;

@@ -12,6 +12,7 @@ import {
   getGroupSnapshot,
   hydrationQueue,
   initGlobalFilter,
+  initGroupFilter,
   noteChartRecentData,
   noteGroupSeries,
   resetGroup,
@@ -86,6 +87,15 @@ describe('global filter store', () => {
 });
 
 describe('per-group store', () => {
+  it('restores a URL filter without discarding hydrated series metadata', () => {
+    const slug = 'group-url-filter';
+    noteGroupSeries(slug, { a: { engine: 'duckdb' } });
+    initGroupFilter(slug, ['b', 'a', 'b']);
+    const snap = getGroupSnapshot(slug);
+    expect(snap.hiddenSeries).toEqual(['b', 'a']);
+    expect(snap.knownSeries).toEqual({ a: { engine: 'duckdb' } });
+  });
+
   it('accumulates known series idempotently and notifies', () => {
     const slug = 'group-known-series';
     let notified = 0;

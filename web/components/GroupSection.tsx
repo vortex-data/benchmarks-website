@@ -10,6 +10,8 @@ import { groupDocUrl } from '@/lib/benchmark-docs';
 import type { FilterUniverse } from '@/lib/chart-format';
 import type { Group } from '@/lib/queries';
 
+const NO_INITIAL_HIDDEN_SERIES: string[] = [];
+
 /**
  * One group's landing-page section, the server-component port of
  * `server/src/html/landing.rs`'s per-group markup.
@@ -50,11 +52,13 @@ export function GroupSection({
   anchor,
   startIndex,
   universe,
+  initialHiddenSeries = NO_INITIAL_HIDDEN_SERIES,
 }: {
   group: Group;
   anchor: string;
   startIndex: number;
   universe: FilterUniverse;
+  initialHiddenSeries?: string[];
 }) {
   const chartCount = group.charts.length;
   // The ⓘ blurb's long form: the benchmark's explainer doc in the monorepo,
@@ -87,12 +91,16 @@ export function GroupSection({
             <span className="group-count">
               {chartCount} chart{chartCount !== 1 ? 's' : ''}
             </span>
-            <GroupPermalink anchor={anchor} groupName={group.name} />
+            <GroupPermalink anchor={anchor} groupName={group.name} groupSlug={group.slug} />
           </span>
         </summary>
       </details>
       <SummaryCard summary={group.summary} />
-      <GroupToolbar groupSlug={group.slug} universe={universe} />
+      <GroupToolbar
+        groupSlug={group.slug}
+        universe={universe}
+        initialHiddenSeries={initialHiddenSeries}
+      />
       <div className="chart-grid">
         {group.charts.map((link, i) => (
           <Chart

@@ -5,12 +5,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { getGroupSnapshot } from '@/lib/chart-store';
+import { GROUP_FILTER_PARAM, HIDDEN_SERIES_PARAM } from '@/lib/group-filter';
+
 /** How long the copied-confirmation state stays visible, in milliseconds. */
 const COPIED_FEEDBACK_MS = 1500;
 
 /**
  * Build the shareable URL for a group: the landing page with the group's
- * human-readable anchor (see `lib/anchor.ts`) as the fragment.
+ * human-readable anchor (see `lib/anchor.ts`) as the fragment. When the group
+ * has a local series filter, repeated `hide` parameters preserve it and a
+ * `group` parameter identifies the owning group. Other query parameters, such
+ * as the global engine and format filters, stay unchanged.
  * [`GroupSection`] stamps the anchor as the section's `id`, so the fragment is
  * a real anchor even without JavaScript; with JavaScript, [`GroupNav`]'s
  * hash-jump effect also expands the group's disclosure on load.
@@ -23,24 +29,43 @@ const COPIED_FEEDBACK_MS = 1500;
  */
 export function groupPermalinkUrl(
   anchor: string,
-  loc: Pick<Location, 'origin' | 'pathname'>,
+  groupSlug: string,
+  hiddenSeries: readonly string[],
+  loc: Pick<Location, 'origin' | 'pathname' | 'search'>,
 ): string {
-  return `${loc.origin}${loc.pathname}#${encodeURIComponent(anchor)}`;
+  const url = new URL(`${loc.origin}${loc.pathname}${loc.search}`);
+  url.searchParams.delete(GROUP_FILTER_PARAM);
+  url.searchParams.delete(HIDDEN_SERIES_PARAM);
+  if (hiddenSeries.length > 0) {
+    url.searchParams.set(GROUP_FILTER_PARAM, groupSlug);
+    for (const label of [...new Set(hiddenSeries)].sort()) {
+      url.searchParams.append(HIDDEN_SERIES_PARAM, label);
+    }
+  }
+  return `${url.origin}${url.pathname}${url.search}#${encodeURIComponent(anchor)}`;
 }
 
 /**
  * The copy-link button in a group's summary header. Clicking it copies the
- * group's permalink (see [`groupPermalinkUrl`]) to the clipboard, mirrors the
- * fragment into the address bar via `history.replaceState` (so the URL is
- * shareable even where the Clipboard API is unavailable, e.g. plain-HTTP dev
- * hosts), and swaps the link glyph for a checkmark for a moment as
- * confirmation.
+ * group's permalink (see [`groupPermalinkUrl`]) to the clipboard, including
+ * its current hidden-series filter. It mirrors the URL into the address bar
+ * via `history.replaceState` (so the URL is shareable even where the Clipboard
+ * API is unavailable, e.g. plain-HTTP dev hosts), and swaps the link glyph for
+ * a checkmark for a moment as confirmation.
  *
  * The button lives inside the disclosure's `<summary>`, where any unhandled
  * click toggles the group open/closed; `preventDefault` suppresses that
  * native toggle so copying a link never collapses the group.
  */
-export function GroupPermalink({ anchor, groupName }: { anchor: string; groupName: string }) {
+export function GroupPermalink({
+  anchor,
+  groupName,
+  groupSlug,
+}: {
+  anchor: string;
+  groupName: string;
+  groupSlug: string;
+}) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -66,11 +91,16 @@ export function GroupPermalink({ anchor, groupName }: { anchor: string; groupNam
         // preventDefault keeps the copy action from also collapsing the group.
         e.preventDefault();
         e.stopPropagation();
-        const url = groupPermalinkUrl(anchor, window.location);
-        // Reflect the fragment in the address bar first: it is the no-clipboard
-        // fallback, and replaceState (unlike assigning `location.hash`) does
-        // not scroll or fire `hashchange`, so the page stays put.
-        window.history.replaceState(null, '', `#${encodeURIComponent(anchor)}`);
+        const url = groupPermalinkUrl(
+          anchor,
+          groupSlug,
+          getGroupSnapshot(groupSlug).hiddenSeries,
+          window.location,
+        );
+        // Reflect the URL in the address bar first: it is the no-clipboard
+        // fallback, and replaceState does not navigate, so the page stays put.
+        const next = new URL(url);
+        window.history.replaceState(null, '', `${next.pathname}${next.search}${next.hash}`);
         void navigator.clipboard?.writeText(url).catch(() => {
           // Clipboard denied or unavailable: the address bar already carries
           // the fragment, so there is nothing further to do.
