@@ -11,6 +11,7 @@ import { HomeLoading } from '@/components/HomeLoading';
 import { groupAnchors } from '@/lib/anchor';
 import { parseFilterCsv, singleSearchParam } from '@/lib/chart-format';
 import { cachedFilterUniverse, cachedGroups } from '@/lib/data-cache';
+import { parseGroupFilter, type GroupFilter } from '@/lib/group-filter';
 
 // Rendered per request, with CDN caching layered on by `vercel.json`: each
 // render reads every group from Postgres via `collectGroups()`, and Vercel's
@@ -32,9 +33,9 @@ export const dynamic = 'force-dynamic';
  * chart's index is unique across every group (matching v3's `landing_body`
  * counter).
  *
- * `?engine=` / `?format=` are the global filter's URL allowlists (CSV); they
- * seed the client filter store via the header's filter bar, exactly as v3's
- * `filter_state_script` bridge did.
+ * `?engine=` / `?format=` are the global filter's URL allowlists (CSV). A
+ * `?group=` target plus repeated `?hide=` values restores the target group's
+ * local hidden-series filter.
  */
 export default async function Home({
   searchParams,
@@ -44,10 +45,15 @@ export default async function Home({
   const params = await searchParams;
   const initialEngines = parseFilterCsv(singleSearchParam(params.engine));
   const initialFormats = parseFilterCsv(singleSearchParam(params.format));
+  const initialGroupFilter = parseGroupFilter(params);
 
   return (
     <Suspense fallback={<HomeLoading />}>
-      <HomeContent initialEngines={initialEngines} initialFormats={initialFormats} />
+      <HomeContent
+        initialEngines={initialEngines}
+        initialFormats={initialFormats}
+        initialGroupFilter={initialGroupFilter}
+      />
     </Suspense>
   );
 }
@@ -55,9 +61,11 @@ export default async function Home({
 async function HomeContent({
   initialEngines,
   initialFormats,
+  initialGroupFilter,
 }: {
   initialEngines: string[];
   initialFormats: string[];
+  initialGroupFilter: GroupFilter | null;
 }) {
   const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);
   // Human-readable permalink anchors, one per section in render order (see
@@ -89,6 +97,11 @@ async function HomeContent({
                   anchor={anchors[i]}
                   startIndex={startIndex}
                   universe={universe}
+                  initialHiddenSeries={
+                    initialGroupFilter?.groupSlug === group.slug
+                      ? initialGroupFilter.hiddenSeries
+                      : []
+                  }
                 />
               );
             })}

@@ -11,12 +11,15 @@ import {
   applyGroupMacro,
   clearGroupSeriesFilter,
   getGroupSnapshot,
+  initGroupFilter,
   resetGroup,
   setGroupY,
   setShowEmptyCharts,
   subscribeGroup,
   toggleGroupSeries,
 } from '@/lib/chart-store';
+
+const NO_INITIAL_HIDDEN_SERIES: string[] = [];
 
 /**
  * The per-group toolbar between a group's summary card and its chart grid, the
@@ -44,9 +47,11 @@ import {
 export function GroupToolbar({
   groupSlug,
   universe,
+  initialHiddenSeries = NO_INITIAL_HIDDEN_SERIES,
 }: {
   groupSlug: string;
   universe: FilterUniverse;
+  initialHiddenSeries?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -62,6 +67,12 @@ export function GroupToolbar({
     () => getGroupSnapshot(groupSlug),
     () => getGroupSnapshot(groupSlug),
   );
+
+  // Restore a shared group permalink after mount. This preserves any series
+  // metadata that chart hydration has already added to the same store.
+  useEffect(() => {
+    initGroupFilter(groupSlug, initialHiddenSeries);
+  }, [groupSlug, initialHiddenSeries]);
 
   // Close on outside click and on Escape, mirroring the global dropdown.
   useEffect(() => {
