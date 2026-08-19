@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 /**
- * v2-compatible per-group summary rollups, the TypeScript port of
- * `server/src/api/summary.rs`.
+ * Per-group summary rollups.
  *
- * Each `collect*Summary` runs a small set of focused SQL queries over a single
- * fact table and returns one [`Summary`] variant. The query-group summary is
- * gated on a v2 dataset allowlist via [`queryGroupHasV2Summary`].
+ * Each `collect*Summary` runs focused SQL queries and returns one [`Summary`]
+ * variant. Query summaries use a v2 dataset allowlist. Compression summaries
+ * compare Vortex, Parquet, and Lance.
  *
  * Behaviour-preservation notes (substrate migration, DuckDB -> Postgres):
  *  - Nullable-dim equality (`dataset_variant` / `scale_factor`) in the
@@ -53,11 +52,31 @@ export interface QueryRanking {
   totalRuntime: number;
 }
 
+/** One format and operation in the compression throughput summary. */
+export interface CompressionRanking {
+  /** On-disk format. */
+  name: string;
+  /** Compression operation. */
+  operation: 'encode' | 'decode';
+  /** Geomean throughput ratio to Parquet for shared datasets. */
+  ratio: number;
+  /** Aggregate throughput in decimal gigabytes per second. */
+  throughputGbS?: number;
+}
+
+/** One format in the compression size summary. */
+export interface CompressionSizeRanking {
+  /** On-disk format. */
+  name: string;
+  /** Geomean size ratio to Parquet for shared datasets. */
+  ratio: number;
+  /** Sum of the compressed sizes for shared datasets. */
+  totalBytes: number;
+}
+
 /**
- * Server-computed group summary, the camelCase-tagged-union wire shape of the
- * Rust `Summary` enum (`#[serde(tag = "type")]` with camelCase variant names
- * and per-field renames). Optional ratio fields are omitted from the wire when
- * absent, matching the Rust `skip_serializing_if = "Option::is_none"`.
+ * Server-computed group summary. The `type` field identifies the variant.
+ * Field names use camelCase on the wire.
  */
 export type Summary =
   | {
@@ -69,18 +88,13 @@ export type Summary =
   | {
       type: 'compression';
       title: string;
-      compressRatio?: number;
-      decompressRatio?: number;
-      datasetCount: number;
+      rankings: CompressionRanking[];
       explanation: string;
     }
   | {
       type: 'compressionSize';
       title: string;
-      minRatio: number;
-      meanRatio: number;
-      maxRatio: number;
-      datasetCount: number;
+      rankings: CompressionSizeRanking[];
       explanation: string;
     }
   | {
@@ -91,7 +105,7 @@ export type Summary =
     };
 
 /**
- * Compute the v2-compatible summary for one group, if its kind has one.
+ * Compute the summary for one group, if its kind has one.
  * `charts` is only consulted for the random-access path (which scans its chart
  * links for the latest populated dataset); the other paths query their fact
  * table directly. The structural `{ name }[]` accepts a `ChartLink[]`.
@@ -207,144 +221,215 @@ async function collectRandomAccessSummary(
 }
 
 async function collectCompressionSummary(): Promise<Summary | null> {
-  // Both the encode (compress) and decode (decompress) geomeans are evaluated at
-  // the encode-derived latest timestamp, falling back to the decode timestamp
-  // when no encode pair exists (Rust order). The shared timestamp is resolved
-  // inside SQL so it never round-trips through text and loses sub-second
-  // precision.
-  const { compress, decompress } = await compressionSpeedups();
-  if (compress.length === 0 && decompress.length === 0) {
+  // Both geomeans use the latest encode timestamp. If no encode pair exists,
+  // they use the latest decode timestamp. SQL preserves sub-second precision.
+  const rows = await compressionSamples();
+  const grouped = new Map<
+    string,
+    {
+      name: string;
+      operation: 'encode' | 'decode';
+      ratios: number[];
+      totalBytes: number;
+      totalNs: number;
+    }
+  >();
+  for (const row of rows) {
+    if (row.op !== 'encode' && row.op !== 'decode') {
+      continue;
+    }
+    const key = `${row.op}:${row.format}`;
+    const aggregate = grouped.get(key) ?? {
+      name: row.format,
+      operation: row.op,
+      ratios: [],
+      totalBytes: 0,
+      totalNs: 0,
+    };
+    aggregate.ratios.push(row.parquetNs / row.valueNs);
+    if (row.basisBytes !== null && row.basisBytes > 0 && Number.isFinite(row.basisBytes)) {
+      aggregate.totalBytes += row.basisBytes;
+      aggregate.totalNs += row.valueNs;
+    }
+    grouped.set(key, aggregate);
+  }
+  const rankings: CompressionRanking[] = [];
+  for (const aggregate of grouped.values()) {
+    const ratio = geoMean(aggregate.ratios);
+    if (ratio === null) {
+      continue;
+    }
+    const ranking: CompressionRanking = {
+      name: aggregate.name,
+      operation: aggregate.operation,
+      ratio,
+    };
+    if (aggregate.totalBytes > 0 && aggregate.totalNs > 0) {
+      // One byte per nanosecond equals one decimal gigabyte per second.
+      ranking.throughputGbS = aggregate.totalBytes / aggregate.totalNs;
+    }
+    rankings.push(ranking);
+  }
+  const operationRank = (op: 'encode' | 'decode'): number => (op === 'encode' ? 0 : 1);
+  rankings.sort((a, b) => {
+    const byOperation = operationRank(a.operation) - operationRank(b.operation);
+    if (byOperation !== 0) {
+      return byOperation;
+    }
+    return b.ratio - a.ratio || compareCodeUnits(a.name, b.name);
+  });
+  if (rankings.length === 0) {
     return null;
   }
-  const summary: Extract<Summary, { type: 'compression' }> = {
+  return {
     type: 'compression',
-    title: 'Compression Throughput vs Parquet',
-    datasetCount: compress.length,
-    explanation: 'Inverse geomean of Vortex/Parquet ratios (higher is better)',
+    title: 'Compression Throughput',
+    rankings,
+    explanation: 'Geomean throughput ratio to Parquet | Aggregate throughput (higher is better)',
   };
-  const compressRatio = geoMean(compress);
-  if (compressRatio !== null) {
-    summary.compressRatio = compressRatio;
-  }
-  const decompressRatio = geoMean(decompress);
-  if (decompressRatio !== null) {
-    summary.decompressRatio = decompressRatio;
-  }
-  return summary;
 }
 
 /**
- * Parquet/Vortex encode (`compress`) and decode (`decompress`) throughput ratios
- * at the shared latest commit timestamp. The timestamp is the newest commit with
- * a complete encode vortex/parquet pair, falling back to the newest decode pair
- * when no encode pair exists, matching `collect_compression_summary`. It is
- * resolved inside the query via a CTE, so `MAX(timestamp)` never round-trips
- * through text (a second-granularity text render silently drops any sub-second
- * commit timestamp). Decode ratios are taken at the encode-derived timestamp,
- * preserving the Rust behaviour of aggregating both ops at one timestamp.
+ * Compression samples at the shared latest commit timestamp. Each format uses
+ * the Parquet timing and Parquet size for the same dataset. The common size
+ * keeps every throughput ratio equal to the inverse time ratio. The timestamp
+ * uses the newest complete Vortex and Parquet encode pair. It uses a decode pair
+ * when no encode pair exists.
  */
-async function compressionSpeedups(): Promise<{ compress: number[]; decompress: number[] }> {
+async function compressionSamples(): Promise<
+  Array<{
+    format: string;
+    op: string;
+    valueNs: number;
+    parquetNs: number;
+    basisBytes: number | null;
+  }>
+> {
   const text = `
     WITH pairs AS (
-      SELECT v.op AS op,
+      SELECT t.format AS format,
+             t.op AS op,
              c.timestamp AS ts,
-             p.value_ns::float8 / v.value_ns::float8 AS ratio,
-             v.dataset AS dataset,
-             v.dataset_variant AS dataset_variant
-        FROM compression_times v
+             t.value_ns::float8 AS value_ns,
+             p.value_ns::float8 AS parquet_ns,
+             s.value_bytes::float8 AS basis_bytes,
+             t.dataset AS dataset,
+             t.dataset_variant AS dataset_variant
+        FROM compression_times t
         JOIN compression_times p
-          ON p.commit_sha = v.commit_sha
-         AND p.dataset = v.dataset
-         AND p.dataset_variant IS NOT DISTINCT FROM v.dataset_variant
-         AND p.op = v.op
-        JOIN commits c ON c.commit_sha = v.commit_sha
-       WHERE v.op IN ('encode', 'decode')
-         AND v.format = 'vortex-file-compressed'
+          ON p.commit_sha = t.commit_sha
+         AND p.dataset = t.dataset
+         AND p.dataset_variant IS NOT DISTINCT FROM t.dataset_variant
+         AND p.op = t.op
+        LEFT JOIN compression_sizes s
+          ON s.commit_sha = t.commit_sha
+         AND s.dataset = t.dataset
+         AND s.dataset_variant IS NOT DISTINCT FROM t.dataset_variant
+         AND s.format = 'parquet'
+         AND s.value_bytes > 0
+        JOIN commits c ON c.commit_sha = t.commit_sha
+       WHERE t.op IN ('encode', 'decode')
+         AND t.format IN ('vortex-file-compressed', 'parquet', 'lance')
          AND p.format = 'parquet'
-         AND v.value_ns > 0
+         AND t.value_ns > 0
          AND p.value_ns > 0
-         AND lower(v.dataset) NOT LIKE '%wide table%'
+         AND lower(t.dataset) NOT LIKE '%wide table%'
     )
-    SELECT pairs.op AS op, pairs.ratio AS ratio
+    SELECT pairs.format AS format,
+           pairs.op AS op,
+           pairs.value_ns AS "valueNs",
+           pairs.parquet_ns AS "parquetNs",
+           pairs.basis_bytes AS "basisBytes"
       FROM pairs
       JOIN (
         SELECT COALESCE(
-          (SELECT MAX(ts) FROM pairs WHERE op = 'encode'),
-          (SELECT MAX(ts) FROM pairs WHERE op = 'decode')
+          (SELECT MAX(ts) FROM pairs
+            WHERE op = 'encode' AND format = 'vortex-file-compressed'),
+          (SELECT MAX(ts) FROM pairs
+            WHERE op = 'decode' AND format = 'vortex-file-compressed')
         ) AS ts
       ) shared ON pairs.ts = shared.ts
-     ORDER BY pairs.dataset, pairs.dataset_variant NULLS FIRST
+     ORDER BY pairs.op, pairs.format, pairs.dataset, pairs.dataset_variant NULLS FIRST
   `;
-  const rows = (await getPool().query<{ op: string; ratio: number }>(text)).rows;
-  const compress: number[] = [];
-  const decompress: number[] = [];
-  for (const row of rows) {
-    if (row.op === 'encode') {
-      compress.push(row.ratio);
-    } else if (row.op === 'decode') {
-      decompress.push(row.ratio);
-    }
-  }
-  return { compress, decompress };
+  return (
+    await getPool().query<{
+      format: string;
+      op: string;
+      valueNs: number;
+      parquetNs: number;
+      basisBytes: number | null;
+    }>(text)
+  ).rows;
 }
 
 async function collectCompressionSizeSummary(): Promise<Summary | null> {
-  const ratios = await compressionSizeRatios();
-  const meanRatio = geoMean(ratios);
-  if (meanRatio === null) {
-    return null;
+  const rows = await compressionSizeSamples();
+  const grouped = new Map<string, { ratios: number[]; totalBytes: number }>();
+  for (const row of rows) {
+    const aggregate = grouped.get(row.format) ?? { ratios: [], totalBytes: 0 };
+    aggregate.ratios.push(row.valueBytes / row.parquetBytes);
+    aggregate.totalBytes += row.valueBytes;
+    grouped.set(row.format, aggregate);
   }
-  // Streaming min/max fold (loop, not a `Math.min(...ratios)` spread) so a very
-  // large dataset count cannot overflow the call-argument limit, matching the
-  // Rust `fold(INFINITY, f64::min)` / `fold(NEG_INFINITY, f64::max)`.
-  let minRatio = Infinity;
-  let maxRatio = -Infinity;
-  for (const ratio of ratios) {
-    minRatio = Math.min(minRatio, ratio);
-    maxRatio = Math.max(maxRatio, ratio);
+  const rankings: CompressionSizeRanking[] = [];
+  for (const [name, aggregate] of grouped) {
+    const ratio = geoMean(aggregate.ratios);
+    if (ratio !== null) {
+      rankings.push({ name, ratio, totalBytes: aggregate.totalBytes });
+    }
+  }
+  rankings.sort((a, b) => a.ratio - b.ratio || compareCodeUnits(a.name, b.name));
+  if (rankings.length === 0) {
+    return null;
   }
   return {
     type: 'compressionSize',
     title: 'Compression Size Summary',
-    minRatio,
-    meanRatio,
-    maxRatio,
-    datasetCount: ratios.length,
-    explanation: 'Geomean of Vortex/Parquet size ratios (lower is better)',
+    rankings,
+    explanation: 'Geomean size ratio to Parquet | Total compressed size (lower is better)',
   };
 }
 
 /**
- * Vortex/Parquet size ratios at the latest commit with a complete vortex/parquet
- * size pair. `MAX(timestamp)` is resolved inside the query (CTE) so it never
- * round-trips through text and drops sub-second commit timestamps.
+ * Format-to-Parquet size ratios use the latest complete Vortex and Parquet pair.
+ * SQL resolves `MAX(timestamp)` and preserves sub-second precision.
  */
-async function compressionSizeRatios(): Promise<number[]> {
+async function compressionSizeSamples(): Promise<
+  Array<{ format: string; valueBytes: number; parquetBytes: number }>
+> {
   const text = `
     WITH pairs AS (
-      SELECT c.timestamp AS ts,
-             v.value_bytes::float8 / p.value_bytes::float8 AS ratio,
-             v.dataset AS dataset,
-             v.dataset_variant AS dataset_variant
-        FROM compression_sizes v
+      SELECT s.format AS format,
+             c.timestamp AS ts,
+             s.value_bytes::float8 AS value_bytes,
+             p.value_bytes::float8 AS parquet_bytes,
+             s.dataset AS dataset,
+             s.dataset_variant AS dataset_variant
+        FROM compression_sizes s
         JOIN compression_sizes p
-          ON p.commit_sha = v.commit_sha
-         AND p.dataset = v.dataset
-         AND p.dataset_variant IS NOT DISTINCT FROM v.dataset_variant
-        JOIN commits c ON c.commit_sha = v.commit_sha
-       WHERE v.format = 'vortex-file-compressed'
+          ON p.commit_sha = s.commit_sha
+         AND p.dataset = s.dataset
+         AND p.dataset_variant IS NOT DISTINCT FROM s.dataset_variant
+        JOIN commits c ON c.commit_sha = s.commit_sha
+       WHERE s.format IN ('vortex-file-compressed', 'parquet', 'lance')
          AND p.format = 'parquet'
-         AND v.value_bytes > 0
+         AND s.value_bytes > 0
          AND p.value_bytes > 0
-         AND lower(v.dataset) NOT LIKE '%wide table%'
+         AND lower(s.dataset) NOT LIKE '%wide table%'
     )
-    SELECT ratio
+    SELECT format,
+           value_bytes AS "valueBytes",
+           parquet_bytes AS "parquetBytes"
       FROM pairs
-     WHERE ts = (SELECT MAX(ts) FROM pairs)
-     ORDER BY dataset, dataset_variant NULLS FIRST
+     WHERE ts = (
+       SELECT MAX(ts)
+         FROM pairs
+        WHERE format = 'vortex-file-compressed'
+     )
+     ORDER BY format, dataset, dataset_variant NULLS FIRST
   `;
-  const rows = (await getPool().query<{ ratio: number }>(text)).rows;
-  return rows.map((row) => row.ratio);
+  return (await getPool().query<{ format: string; valueBytes: number; parquetBytes: number }>(text))
+    .rows;
 }
 
 async function collectQuerySummary(

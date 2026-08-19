@@ -42,10 +42,7 @@ function staticDescription(name: string): string | null {
     case 'Random Access':
       return 'Tests performance of selecting arbitrary row indices from a file on NVMe storage';
     case 'Compression':
-      return (
-        'Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet ' +
-        'files (with zstd page compression)'
-      );
+      return 'Measures write and scan throughput for Vortex, Parquet, and Lance files';
     case 'Compression Size':
       return (
         'Compares compressed file sizes and compression ratios across different encoding ' +

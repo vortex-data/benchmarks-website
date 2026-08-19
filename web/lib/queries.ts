@@ -678,18 +678,11 @@ export interface GroupChartsResponse {
   charts: NamedChartResponse[];
 }
 
-/**
- * Canonical group ordering — the curated presentation order for the v4 site,
- * matching how the benchmark groups are shown on the v2 site: compression
- * throughput, compression size, Clickbench, the TPC-H ladder (NVMe/S3
- * alternating across SF=1/10/100), TPC-DS, then Random Access, Statistical and
- * Population Genetics, PolarSignals Profiling, fineweb (NVMe/S3), and appian
- * (NVMe). Group names not in this list sort after every listed name,
- * alphabetically (see [`groupSortKey`]).
- */
+/** Canonical group order for the v4 site. Unknown groups sort last by name. */
 const GROUP_ORDER: readonly string[] = [
   'Compression',
   'Compression Size',
+  'Random Access',
   'Clickbench',
   'TPC-H (NVMe) (SF=1)',
   'TPC-H (S3) (SF=1)',
@@ -698,7 +691,6 @@ const GROUP_ORDER: readonly string[] = [
   'TPC-H (NVMe) (SF=100)',
   'TPC-H (S3) (SF=100)',
   'TPC-DS (NVMe) (SF=1)',
-  'Random Access',
   'Statistical and Population Genetics',
   'PolarSignals Profiling',
   'fineweb [nvme]',

@@ -148,6 +148,8 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
       ['vortex-file-compressed', 'decode', 5_000 + bias],
       ['parquet', 'encode', 18_000 + 2 * bias],
       ['parquet', 'decode', 10_000 + 2 * bias],
+      ['lance', 'encode', 36_000 + 4 * bias],
+      ['lance', 'decode', 20_000 + 4 * bias],
     ];
     for (const [format, op, valueNs] of compTimes) {
       await pool.query(
@@ -161,6 +163,7 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
     const compSizes: ReadonlyArray<readonly [string, number]> = [
       ['vortex-file-compressed', 4_000 + bias],
       ['parquet', 8_000 + 2 * bias],
+      ['lance', 16_000 + 4 * bias],
     ];
     for (const [format, valueBytes] of compSizes) {
       await pool.query(
