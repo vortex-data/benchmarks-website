@@ -282,15 +282,15 @@ describe('pickDisplayUnit', () => {
     });
   });
 
-  it('steps bytes by binary multiples', () => {
+  it('steps bytes by decimal multiples', () => {
     expect(pickDisplayUnit('bytes', [512])).toMatchObject({ suffix: 'B', decimals: 0 });
-    expect(pickDisplayUnit('bytes', [2048])).toMatchObject({ suffix: 'KiB' });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 2])).toMatchObject({ suffix: 'MiB' });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 3])).toMatchObject({
-      suffix: 'GiB',
-      axisLabel: 'Size (GiB)',
+    expect(pickDisplayUnit('bytes', [2_000])).toMatchObject({ suffix: 'KB' });
+    expect(pickDisplayUnit('bytes', [3_000_000])).toMatchObject({ suffix: 'MB' });
+    expect(pickDisplayUnit('bytes', [3_000_000_000])).toMatchObject({
+      suffix: 'GB',
+      axisLabel: 'Size (GB)',
     });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 4])).toMatchObject({ suffix: 'TiB' });
+    expect(pickDisplayUnit('bytes', [3_000_000_000_000])).toMatchObject({ suffix: 'TB' });
   });
 
   it('leaves dimensionless and throughput kinds unscaled', () => {

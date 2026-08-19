@@ -4,11 +4,8 @@
 /**
  * Shared display formatting helpers for the read UI.
  *
- * These mirror the v3 server-rendered HTML layer so the Next.js port reads the
- * same as the system it replaces. The summary card's time values arrive in
- * nanoseconds (the `Summary` wire shape from `lib/summary.ts`, matching the
- * Rust `value_ns` columns), so [`formatTimeNs`] is the nanosecond-input port of
- * `server/src/html/summary.rs::format_time_ns`.
+ * The time helper mirrors the v3 server-rendered HTML layer. Summary time
+ * values arrive in nanoseconds from the `value_ns` columns.
  */
 
 /**
@@ -31,4 +28,19 @@ export function formatTimeNs(ns: number): string {
     return `${(ns / 1_000).toFixed(2)} us`;
   }
   return `${ns.toFixed(0)} ns`;
+}
+
+/** Format a byte count with a compact decimal unit. */
+export function formatBytes(bytes: number): string {
+  const abs = Math.abs(bytes);
+  if (abs >= 1_000_000_000) {
+    return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+  }
+  if (abs >= 1_000_000) {
+    return `${(bytes / 1_000_000).toFixed(2)} MB`;
+  }
+  if (abs >= 1_000) {
+    return `${(bytes / 1_000).toFixed(2)} KB`;
+  }
+  return `${bytes.toFixed(0)} B`;
 }

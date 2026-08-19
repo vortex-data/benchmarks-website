@@ -64,14 +64,12 @@ describe.skipIf(!dockerAvailable())(
 
     it('orders groups by the canonical GROUP_ORDER, with unknown groups last', async () => {
       const groups = await collectGroups();
-      // `Random Access` is pinned at the END of GROUP_ORDER (directly below
-      // `PolarSignals Profiling`), so it sorts after the other listed groups but
-      // before the unknown `cohere-...` group in the trailing alphabetical bucket.
+      // `Random Access` is directly before Clickbench in GROUP_ORDER.
       expect(groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'TPC-H (NVMe) (SF=1)',
         'Random Access',
+        'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
     });
@@ -92,7 +90,7 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.rankings[1].ratio).toBeCloseTo(2.0, 6);
     });
 
-    it('computes the compression throughput summary (geomean speedup)', async () => {
+    it('computes compression rankings with Parquet and Lance baselines', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Compression')?.summary,
@@ -101,17 +99,27 @@ describe.skipIf(!dockerAvailable())(
       if (summary.type !== 'compression') {
         throw new Error(`expected compression summary, got ${summary.type}`);
       }
-      expect(summary.compressRatio).toBeCloseTo(2.0, 6);
-      expect(summary.decompressRatio).toBeCloseTo(2.0, 6);
-      expect(summary.datasetCount).toBe(1);
-      // The wire shape carries camelCase variant fields per `dto.rs`.
+      const byKey = new Map(
+        summary.rankings.map((ranking) => [`${ranking.operation}:${ranking.name}`, ranking]),
+      );
+      expect(byKey.get('encode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
+      expect(byKey.get('encode:parquet')?.ratio).toBeCloseTo(1.0, 6);
+      expect(byKey.get('encode:lance')?.ratio).toBeCloseTo(0.5, 6);
+      expect(byKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
+      expect(byKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
+      expect(byKey.get('decode:lance')?.ratio).toBeCloseTo(0.5, 6);
+      expect(byKey.get('encode:lance')?.throughputGbS).toBeCloseTo(8_000 / 36_000, 6);
+      expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(8_000 / 20_000, 6);
+      expect(byKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
+        208_000 / 109_000,
+        6,
+      );
       const json = JSON.stringify(summary);
-      expect(json).toContain('"compressRatio"');
-      expect(json).toContain('"datasetCount"');
-      expect(json).not.toContain('compress_ratio');
+      expect(json).toContain('"throughputGbS"');
+      expect(json).toContain('"rankings"');
     });
 
-    it('computes the compression-size summary (geomean size ratio)', async () => {
+    it('computes compression-size rankings for Vortex, Parquet, and Lance', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Compression Size')?.summary,
@@ -120,10 +128,16 @@ describe.skipIf(!dockerAvailable())(
       if (summary.type !== 'compressionSize') {
         throw new Error(`expected compressionSize summary, got ${summary.type}`);
       }
-      expect(summary.minRatio).toBeCloseTo(0.5, 6);
-      expect(summary.meanRatio).toBeCloseTo(0.5, 6);
-      expect(summary.maxRatio).toBeCloseTo(0.5, 6);
-      expect(summary.datasetCount).toBe(1);
+      expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+        'vortex-file-compressed',
+        'parquet',
+        'lance',
+      ]);
+      expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
+      expect(summary.rankings[0].totalBytes).toBeCloseTo(104_000, 6);
+      expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
+      expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
+      expect(summary.rankings[2].totalBytes).toBeCloseTo(16_000, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {
@@ -177,8 +191,8 @@ describe.skipIf(!dockerAvailable())(
       expect(body.groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'TPC-H (NVMe) (SF=1)',
         'Random Access',
+        'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
     });
@@ -377,9 +391,14 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (time.type !== 'compression') {
       throw new Error(`expected compression summary, got ${time.type}`);
     }
-    expect(time.compressRatio).toBeCloseTo(3.0, 6);
-    expect(time.decompressRatio).toBeCloseTo(2.0, 6);
-    expect(time.datasetCount).toBe(1);
+    const timeByKey = new Map(
+      time.rankings.map((ranking) => [`${ranking.operation}:${ranking.name}`, ranking]),
+    );
+    expect(timeByKey.get('encode:vortex-file-compressed')?.ratio).toBeCloseTo(3.0, 6);
+    expect(timeByKey.get('encode:parquet')?.ratio).toBeCloseTo(1.0, 6);
+    expect(timeByKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
+    expect(timeByKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
+    expect(timeByKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(4.0, 6);
 
     const size = expectDefined(
       await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
@@ -388,10 +407,55 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (size.type !== 'compressionSize') {
       throw new Error(`expected compressionSize summary, got ${size.type}`);
     }
-    expect(size.minRatio).toBeCloseTo(0.25, 6);
-    expect(size.meanRatio).toBeCloseTo(0.25, 6);
-    expect(size.maxRatio).toBeCloseTo(0.25, 6);
-    expect(size.datasetCount).toBe(1);
+    expect(size.rankings.map((ranking) => ranking.name)).toEqual([
+      'vortex-file-compressed',
+      'parquet',
+    ]);
+    expect(size.rankings[0].ratio).toBeCloseTo(0.25, 6);
+    expect(size.rankings[0].totalBytes).toBeCloseTo(1_000, 6);
+    expect(size.rankings[1].ratio).toBeCloseTo(1.0, 6);
+  });
+
+  it('selects one commit when the latest timestamps collide', async () => {
+    const lowerSha = '4'.repeat(40);
+    const higherSha = '5'.repeat(40);
+    const timestamp = '2026-04-23T12:00:00Z';
+    await insertCommit(lowerSha, timestamp);
+    await insertCommit(higherSha, timestamp);
+    await insertCompTimePair(lowerSha, 'encode', 1_000, 2_000);
+    await insertCompTimePair(higherSha, 'encode', 1_000, 4_000);
+    await insertCompSizePair(lowerSha, 1_000, 2_000);
+    await insertCompSizePair(higherSha, 2_000, 8_000);
+
+    const time = expectDefined(
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      'compression-time summary',
+    );
+    if (time.type !== 'compression') {
+      throw new Error(`expected compression summary, got ${time.type}`);
+    }
+    const vortexTime = expectDefined(
+      time.rankings.find(
+        (ranking) => ranking.operation === 'encode' && ranking.name === 'vortex-file-compressed',
+      ),
+      'Vortex compression ranking',
+    );
+    expect(vortexTime.ratio).toBeCloseTo(4.0, 6);
+    expect(vortexTime.throughputGbS).toBeCloseTo(8.0, 6);
+
+    const size = expectDefined(
+      await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
+      'compression-size summary',
+    );
+    if (size.type !== 'compressionSize') {
+      throw new Error(`expected compressionSize summary, got ${size.type}`);
+    }
+    const vortexSize = expectDefined(
+      size.rankings.find((ranking) => ranking.name === 'vortex-file-compressed'),
+      'Vortex compression-size ranking',
+    );
+    expect(vortexSize.ratio).toBeCloseTo(0.25, 6);
+    expect(vortexSize.totalBytes).toBe(2_000);
   });
 
   it('aggregates decode at the encode-derived timestamp, not decode’s own latest', async () => {
@@ -413,9 +477,11 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (summary.type !== 'compression') {
       throw new Error(`expected compression summary, got ${summary.type}`);
     }
-    expect(summary.compressRatio).toBeCloseTo(3.0, 6);
-    expect(summary.decompressRatio).toBeUndefined();
-    expect(summary.datasetCount).toBe(1);
+    expect(summary.rankings.map((ranking) => `${ranking.operation}:${ranking.name}`)).toEqual([
+      'encode:vortex-file-compressed',
+      'encode:parquet',
+    ]);
+    expect(summary.rankings[0].ratio).toBeCloseTo(3.0, 6);
   });
 
   it('falls back to the latest decode timestamp when there is no encode pair', async () => {
@@ -430,9 +496,12 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (summary.type !== 'compression') {
       throw new Error(`expected compression summary, got ${summary.type}`);
     }
-    expect(summary.compressRatio).toBeUndefined();
-    expect(summary.decompressRatio).toBeCloseTo(2.0, 6);
-    expect(summary.datasetCount).toBe(0);
+    expect(summary.rankings.map((ranking) => `${ranking.operation}:${ranking.name}`)).toEqual([
+      'decode:vortex-file-compressed',
+      'decode:parquet',
+    ]);
+    expect(summary.rankings[0].ratio).toBeCloseTo(2.0, 6);
+    expect(summary.rankings[0].throughputGbS).toBeUndefined();
   });
 
   it('applies the 300_000 penalty floor so a missing query flips the ranking', async () => {

@@ -116,9 +116,9 @@ the v3 Axum server (so the frontend is generation-agnostic). The landing-page
 order is the curated `GROUP_ORDER` in `queries.ts`:
 
 ```
-Compression, Compression Size, Clickbench,
+Compression, Compression Size, Random Access, Clickbench,
 TPC-H (NVMe/S3) SF=1, SF=10, SF=100 (alternating),
-TPC-DS (NVMe) SF=1, Random Access,
+TPC-DS (NVMe) SF=1,
 Statistical and Population Genetics, PolarSignals Profiling,
 fineweb (NVMe/S3), Appian (NVMe)
 ```
