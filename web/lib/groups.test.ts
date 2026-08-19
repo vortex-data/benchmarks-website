@@ -108,6 +108,8 @@ describe.skipIf(!dockerAvailable())(
       expect(byKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
       expect(byKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
       expect(byKey.get('decode:lance')?.ratio).toBeCloseTo(0.5, 6);
+      expect(byKey.get('encode:lance')?.throughputGbS).toBeCloseTo(8_000 / 36_000, 6);
+      expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(8_000 / 20_000, 6);
       expect(byKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
         208_000 / 109_000,
         6,
@@ -135,6 +137,7 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.rankings[0].totalBytes).toBeCloseTo(104_000, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
+      expect(summary.rankings[2].totalBytes).toBeCloseTo(16_000, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {

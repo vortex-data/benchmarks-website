@@ -162,7 +162,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
       parseCommitWindow(null),
     );
     expect(payload?.series).toEqual({
-      lance: [16_000, 216_000, 416_000],
+      lance: [16_000, null, null],
       parquet: [8_000, 108_000, 208_000],
       'vortex-file-compressed': [4_000, 54_000, 104_000],
     });
