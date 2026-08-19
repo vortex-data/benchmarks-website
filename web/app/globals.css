@@ -558,6 +558,32 @@ main {
 .group-permalink--copied:focus-visible {
   color: var(--accent);
 }
+/*
+ * The docs link next to a group title (GroupDocsLink), pointing at the
+ * benchmark's explainer doc in the monorepo. Sized and coloured like the
+ * permalink button beside it so the summary row reads as one row of quiet
+ * affordances.
+ */
+.group-docs-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  flex-shrink: 0;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+.group-docs-link:hover,
+.group-docs-link:focus-visible {
+  color: var(--fg);
+  background: var(--border);
+}
 /* Screen-reader-only text (the permalink button's copied announcement). */
 .visually-hidden {
   position: absolute;

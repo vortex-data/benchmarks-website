@@ -42,6 +42,15 @@ rules below are the parts that were worth keeping.
   payload ([`web/components/Chart.tsx`](web/components/Chart.tsx)). The single exception is the
   latest-100 to full-history zoom-out path: when the user first zooms past the materialized
   window, the chart lazy-fetches `?n=all` once and replaces the payload in place.
+- **Group docs links are derived from the dataset name, not enumerated.**
+  [`web/lib/benchmark-docs.ts`](web/lib/benchmark-docs.ts) links each group to the benchmark's
+  explainer doc in `vortex-data/vortex` (the same docs the monorepo's PR benchmark comment links,
+  sourced there from `Benchmark::doc_path`). A SQL suite documents itself at
+  `vortex-bench/sql/<dataset>.md`, and `dataset` comes from the group's own slug — the emitter's
+  `Benchmark::dataset_name()` — so a suite added upstream links itself with no edit here. Keep the
+  override table an exception list: add a dataset only after checking the convention does not hold
+  for it, and prefer fixing the upstream layout to growing the table. Anything unresolved lands on
+  the benchmarking guide, so a link is never broken, only less specific.
 - **Don't write a server-side classifier for live ingest.** The emitter produces structured
   records directly. Classifying loose name strings at read time was the v2-era weakness every
   later generation existed to escape; it belongs nowhere in the live pipeline.

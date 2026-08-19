@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { Chart } from '@/components/Chart';
+import { GroupDocsLink } from '@/components/GroupDocsLink';
 import { GroupPermalink } from '@/components/GroupPermalink';
 import { GroupToolbar } from '@/components/GroupToolbar';
 import { SummaryCard } from '@/components/SummaryCard';
+import { groupDocUrl } from '@/lib/benchmark-docs';
 import type { FilterUniverse } from '@/lib/chart-format';
 import type { Group } from '@/lib/queries';
 
@@ -23,6 +25,11 @@ import type { Group } from '@/lib/queries';
  * and a page-unique `data-chart-index`; the island lazily fetches
  * `/api/chart/[slug]` when this group's disclosure opens (it listens for the
  * native `toggle` event of the enclosing `details.group-disclosure`).
+ *
+ * The group title carries two affordances beyond the disclosure itself: the ⓘ
+ * tooltip with the editorial one-liner from `lib/descriptions.ts`, and a
+ * [`GroupDocsLink`] to the benchmark's explainer doc in the monorepo, which
+ * `lib/benchmark-docs.ts` derives from the group slug's dataset name.
  *
  * The per-group toolbar (group Y override + series filter + empty-charts
  * toggle + reset) sits between the summary card and the chart grid, exactly as
@@ -50,6 +57,10 @@ export function GroupSection({
   universe: FilterUniverse;
 }) {
   const chartCount = group.charts.length;
+  // The ⓘ blurb's long form: the benchmark's explainer doc in the monorepo,
+  // derived from the dataset name inside the group's slug (`null` only if that
+  // slug does not parse).
+  const docUrl = groupDocUrl(group.slug);
   return (
     <section
       className="group-details"
@@ -72,6 +83,7 @@ export function GroupSection({
                 ⓘ
               </span>
             )}
+            {docUrl !== null && <GroupDocsLink href={docUrl} groupName={group.name} />}
             <span className="group-count">
               {chartCount} chart{chartCount !== 1 ? 's' : ''}
             </span>
