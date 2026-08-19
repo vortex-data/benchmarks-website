@@ -80,11 +80,11 @@ describe('GroupSection', () => {
     expect(html).toContain('target="_blank"');
   });
 
-  it('omits the docs link for a group with no doc mapped', () => {
+  it('omits the docs link when the group slug does not parse', () => {
     const html = renderToStaticMarkup(
       <GroupSection
-        group={{ ...RANDOM_ACCESS, name: 'sift-1m / flat' }}
-        anchor="sift-1m-flat"
+        group={{ ...RANDOM_ACCESS, slug: 'not-a-slug' }}
+        anchor="random-access"
         startIndex={0}
         universe={UNIVERSE}
       />,

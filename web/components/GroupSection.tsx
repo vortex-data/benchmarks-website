@@ -28,8 +28,8 @@ import type { Group } from '@/lib/queries';
  *
  * The group title carries two affordances beyond the disclosure itself: the ⓘ
  * tooltip with the editorial one-liner from `lib/descriptions.ts`, and a
- * [`GroupDocsLink`] to the benchmark's explainer doc in the monorepo when
- * `lib/benchmark-docs.ts` maps one for the group name.
+ * [`GroupDocsLink`] to the benchmark's explainer doc in the monorepo, which
+ * `lib/benchmark-docs.ts` derives from the group slug's dataset name.
  *
  * The per-group toolbar (group Y override + series filter + empty-charts
  * toggle + reset) sits between the summary card and the chart grid, exactly as
@@ -58,8 +58,9 @@ export function GroupSection({
 }) {
   const chartCount = group.charts.length;
   // The ⓘ blurb's long form: the benchmark's explainer doc in the monorepo,
-  // derived from the group name (`null` for groups with no doc mapped).
-  const docUrl = groupDocUrl(group.name);
+  // derived from the dataset name inside the group's slug (`null` only if that
+  // slug does not parse).
+  const docUrl = groupDocUrl(group.slug);
   return (
     <section
       className="group-details"
