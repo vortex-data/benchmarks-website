@@ -6,7 +6,7 @@
  *
  * Each `collect*Summary` runs focused SQL queries and returns one [`Summary`]
  * variant. Query summaries use a v2 dataset allowlist. Compression summaries
- * compare Vortex, Parquet, and Lance.
+ * compare the configured formats with Parquet.
  *
  * Behaviour-preservation notes (substrate migration, DuckDB -> Postgres):
  *  - Nullable-dim equality (`dataset_variant` / `scale_factor`) in the
@@ -31,6 +31,30 @@
 import { getPool } from './db';
 import { compareCodeUnits } from './families';
 import type { GroupKey } from './slug';
+
+/**
+ * Freshness buckets shared by the compression-time and compression-size summaries.
+ *
+ * Formats benchmarked with Vortex use its newest shared snapshot. Add another
+ * intermittently benchmarked format to `LATEST_PER_DATASET`; both summaries
+ * will use its newest result for each dataset and compare it with Parquet from
+ * that same commit.
+ */
+const COMPRESSION_SHARED_SNAPSHOT_FORMATS = ['vortex-file-compressed', 'parquet'];
+const COMPRESSION_LATEST_PER_DATASET_FORMATS = ['lance'];
+
+const COMPRESSION_SNAPSHOT_ANCHOR = 'vortex-file-compressed';
+const COMPRESSION_BASELINE = 'parquet';
+
+function compressionSummaryQueryParams(): [string[], string[], string[], string, string] {
+  return [
+    [...COMPRESSION_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_LATEST_PER_DATASET_FORMATS],
+    COMPRESSION_SHARED_SNAPSHOT_FORMATS,
+    COMPRESSION_LATEST_PER_DATASET_FORMATS,
+    COMPRESSION_SNAPSHOT_ANCHOR,
+    COMPRESSION_BASELINE,
+  ];
+}
 
 /** One random-access summary row. */
 export interface RandomAccessRanking {
@@ -290,9 +314,9 @@ async function collectCompressionSummary(): Promise<Summary | null> {
 }
 
 /**
- * Compression samples use the newest complete Vortex snapshot. Lance uses its
- * latest result for each dataset because Lance can run on a slower cadence.
- * Each sample uses Parquet timing and size from the same commit.
+ * Regularly benchmarked formats use the newest complete Vortex snapshot.
+ * Independently benchmarked formats use their latest result for each dataset.
+ * Every sample uses Parquet timing and size from the same commit.
  */
 async function compressionSamples(): Promise<
   Array<{
@@ -311,7 +335,6 @@ async function compressionSamples(): Promise<
              t.commit_sha AS commit_sha,
              t.value_ns::float8 AS value_ns,
              p.value_ns::float8 AS parquet_ns,
-             s.value_bytes::float8 AS basis_bytes,
              t.dataset AS dataset,
              t.dataset_variant AS dataset_variant
         FROM compression_times t
@@ -320,44 +343,53 @@ async function compressionSamples(): Promise<
          AND p.dataset = t.dataset
          AND p.dataset_variant IS NOT DISTINCT FROM t.dataset_variant
          AND p.op = t.op
-        LEFT JOIN compression_sizes s
-          ON s.commit_sha = t.commit_sha
-         AND s.dataset = t.dataset
-         AND s.dataset_variant IS NOT DISTINCT FROM t.dataset_variant
-         AND s.format = 'parquet'
-         AND s.value_bytes > 0
         JOIN commits c ON c.commit_sha = t.commit_sha
        WHERE t.op IN ('encode', 'decode')
-         AND t.format IN ('vortex-file-compressed', 'parquet', 'lance')
-         AND p.format = 'parquet'
+         AND t.format = ANY($1::text[])
+         AND p.format = $5
          AND t.value_ns > 0
          AND p.value_ns > 0
          AND lower(t.dataset) NOT LIKE '%wide table%'
-    ), ranked AS (
+    ), shared AS (
+      SELECT COALESCE(
+               MAX(ts) FILTER (WHERE op = 'encode' AND format = $4),
+               MAX(ts) FILTER (WHERE op = 'decode' AND format = $4)
+             ) AS ts
+        FROM pairs
+    ), ranked_latest_per_dataset_pairs AS (
       SELECT pairs.*,
              ROW_NUMBER() OVER (
                PARTITION BY format, op, dataset, dataset_variant
                ORDER BY ts DESC, commit_sha DESC
              ) AS latest_rank
         FROM pairs
-    ), shared AS (
-      SELECT COALESCE(
-        (SELECT MAX(ts) FROM pairs
-          WHERE op = 'encode' AND format = 'vortex-file-compressed'),
-        (SELECT MAX(ts) FROM pairs
-          WHERE op = 'decode' AND format = 'vortex-file-compressed')
-      ) AS ts
+       WHERE format = ANY($3::text[])
+    ), selected AS (
+      SELECT pairs.format, pairs.op, pairs.commit_sha, pairs.value_ns,
+             pairs.parquet_ns, pairs.dataset, pairs.dataset_variant
+        FROM pairs
+        CROSS JOIN shared
+       WHERE pairs.format = ANY($2::text[])
+         AND pairs.ts = shared.ts
+      UNION ALL
+      SELECT format, op, commit_sha, value_ns, parquet_ns, dataset, dataset_variant
+        FROM ranked_latest_per_dataset_pairs
+       WHERE latest_rank = 1
     )
-    SELECT ranked.format AS format,
-           ranked.op AS op,
-           ranked.value_ns AS "valueNs",
-           ranked.parquet_ns AS "parquetNs",
-           ranked.basis_bytes AS "basisBytes"
-      FROM ranked
-      CROSS JOIN shared
-     WHERE (ranked.format = 'lance' AND ranked.latest_rank = 1)
-        OR (ranked.format <> 'lance' AND ranked.ts = shared.ts)
-     ORDER BY ranked.op, ranked.format, ranked.dataset, ranked.dataset_variant NULLS FIRST
+    SELECT selected.format AS format,
+           selected.op AS op,
+           selected.value_ns AS "valueNs",
+           selected.parquet_ns AS "parquetNs",
+           s.value_bytes::float8 AS "basisBytes"
+      FROM selected
+      LEFT JOIN compression_sizes s
+        ON s.commit_sha = selected.commit_sha
+       AND s.dataset = selected.dataset
+       AND s.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
+       AND s.format = $5
+       AND s.value_bytes > 0
+     ORDER BY selected.op, selected.format, selected.dataset,
+              selected.dataset_variant NULLS FIRST
   `;
   return (
     await getPool().query<{
@@ -366,7 +398,7 @@ async function compressionSamples(): Promise<
       valueNs: number;
       parquetNs: number;
       basisBytes: number | null;
-    }>(text)
+    }>(text, compressionSummaryQueryParams())
   ).rows;
 }
 
@@ -399,8 +431,9 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
 }
 
 /**
- * Size ratios use the newest complete Vortex snapshot. Lance uses its latest
- * result for each dataset and compares it with Parquet from the same commit.
+ * Regularly benchmarked formats use the newest complete Vortex snapshot.
+ * Independently benchmarked formats use their latest result for each dataset
+ * and compare it with Parquet from the same commit.
  */
 async function compressionSizeSamples(): Promise<
   Array<{ format: string; valueBytes: number; parquetBytes: number }>
@@ -420,34 +453,47 @@ async function compressionSizeSamples(): Promise<
          AND p.dataset = s.dataset
          AND p.dataset_variant IS NOT DISTINCT FROM s.dataset_variant
         JOIN commits c ON c.commit_sha = s.commit_sha
-       WHERE s.format IN ('vortex-file-compressed', 'parquet', 'lance')
-         AND p.format = 'parquet'
+       WHERE s.format = ANY($1::text[])
+         AND p.format = $5
          AND s.value_bytes > 0
          AND p.value_bytes > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
-    ), ranked AS (
+    ), shared AS (
+      SELECT MAX(ts) AS ts
+        FROM pairs
+       WHERE format = $4
+    ), ranked_latest_per_dataset_pairs AS (
       SELECT pairs.*,
              ROW_NUMBER() OVER (
                PARTITION BY format, dataset, dataset_variant
                ORDER BY ts DESC, commit_sha DESC
              ) AS latest_rank
         FROM pairs
-    ), shared AS (
-      SELECT MAX(ts) AS ts
+       WHERE format = ANY($3::text[])
+    ), selected AS (
+      SELECT pairs.format, pairs.value_bytes, pairs.parquet_bytes,
+             pairs.dataset, pairs.dataset_variant
         FROM pairs
-       WHERE format = 'vortex-file-compressed'
+        CROSS JOIN shared
+       WHERE pairs.format = ANY($2::text[])
+         AND pairs.ts = shared.ts
+      UNION ALL
+      SELECT format, value_bytes, parquet_bytes, dataset, dataset_variant
+        FROM ranked_latest_per_dataset_pairs
+       WHERE latest_rank = 1
     )
-    SELECT format,
-           value_bytes AS "valueBytes",
-           parquet_bytes AS "parquetBytes"
-      FROM ranked
-      CROSS JOIN shared
-     WHERE (ranked.format = 'lance' AND ranked.latest_rank = 1)
-        OR (ranked.format <> 'lance' AND ranked.ts = shared.ts)
-     ORDER BY format, dataset, dataset_variant NULLS FIRST
+    SELECT selected.format AS format,
+           selected.value_bytes AS "valueBytes",
+           selected.parquet_bytes AS "parquetBytes"
+      FROM selected
+     ORDER BY selected.format, selected.dataset, selected.dataset_variant NULLS FIRST
   `;
-  return (await getPool().query<{ format: string; valueBytes: number; parquetBytes: number }>(text))
-    .rows;
+  return (
+    await getPool().query<{ format: string; valueBytes: number; parquetBytes: number }>(
+      text,
+      compressionSummaryQueryParams(),
+    )
+  ).rows;
 }
 
 async function collectQuerySummary(

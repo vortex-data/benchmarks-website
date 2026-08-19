@@ -11,7 +11,7 @@ vi.mock('./db', () => ({
 
 import { collectGroupSummary } from './summary';
 
-describe('compression size summary math', () => {
+describe('compression summaries', () => {
   beforeEach(() => {
     query.mockReset();
   });
@@ -37,5 +37,30 @@ describe('compression size summary math', () => {
     expect(byFormat.get('vortex-file-compressed')?.totalBytes).toBe(901);
     expect(byFormat.get('parquet')?.ratio).toBeCloseTo(1, 6);
     expect(byFormat.get('parquet')?.totalBytes).toBe(104);
+  });
+
+  it('applies one extensible freshness policy to timings and sizes', async () => {
+    query.mockResolvedValue({ rows: [] });
+
+    await collectGroupSummary({ k: 'CompressionTimeGroup' }, []);
+    await collectGroupSummary({ k: 'CompressionSizeGroup' }, []);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    const expectedParams = [
+      ['vortex-file-compressed', 'parquet', 'lance'],
+      ['vortex-file-compressed', 'parquet'],
+      ['lance'],
+      'vortex-file-compressed',
+      'parquet',
+    ];
+    for (const [text, params] of query.mock.calls as Array<[string, unknown[]]>) {
+      expect(params).toEqual(expectedParams);
+      expect(text).toContain('format = ANY($1::text[])');
+      expect(text).toContain('format = ANY($2::text[])');
+      expect(text).toContain('format = ANY($3::text[])');
+      // The SQL operates on policy buckets; adding another intermittent format
+      // must not require another hard-coded format branch.
+      expect(text).not.toContain("format = 'lance'");
+    }
   });
 });
