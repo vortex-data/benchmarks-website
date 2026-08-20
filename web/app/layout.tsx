@@ -35,31 +35,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-// The pre-paint theme bootstrap, ported verbatim from
-// `render.rs::theme_bootstrap_script`: apply any stored theme choice before
-// first paint so a dark-mode visitor never flashes the light theme. Inline (not
-// a module) and in `<head>` so it runs before the body renders. The stored
-// theme lands as a `data-theme` attribute the server never rendered, so the
-// root `<html>` carries `suppressHydrationWarning` (attribute-level, one
-// element deep) to keep dev hydration checks quiet for themed visitors. The
-// script's bare catch is deliberate and v3-byte-identical: localStorage
-// access throws in some private-browsing modes, and the correct fallback is
-// silently keeping the default prefers-color-scheme theme.
-const THEME_BOOTSTRAP = `(function(){try{var t=localStorage.getItem("bench-theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
-
 /**
- * Root layout: the `<html>`/`<body>` shell plus the global stylesheet, the
- * pre-paint theme bootstrap, and the external web fonts (Geist sans + mono for
- * body/metrics, Funnel Display for headings), mirroring v2's `index.html` /
- * v3's `render.rs::web_font_links`. React 19 hoists the `<link>` tags into
- * `<head>`.
+ * Root layout: the `<html>`/`<body>` shell plus the global stylesheet and the
+ * external web fonts (Geist sans + mono for body/metrics, Funnel Display for
+ * headings), mirroring v2's `index.html` / v3's `render.rs::web_font_links`.
+ * React 19 hoists the `<link>` tags into `<head>`.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
-      </head>
+    <html lang="en">
       <body>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />

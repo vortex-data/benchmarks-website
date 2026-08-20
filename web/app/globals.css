@@ -5,19 +5,19 @@
   color-scheme: light;
   --header-height: 72px;
   --bg: #ffffff;
-  --page-bg: #fafafa;
-  --fg: #101010;
-  --muted: #666666;
-  --accent: #5971fd;
+  --page-bg: #f5f6f7;
+  --fg: #101828;
+  --muted: #4a5565;
+  --accent: #0e7490;
   --accent-fg: #ffffff;
-  --border: #ececec;
+  --border: #e5e7eb;
   --card-bg: #ffffff;
-  --code-bg: #fafafa;
-  --tooltip-bg: #1a1a1a;
-  --tooltip-fg: #f5f5f5;
+  --code-bg: #f5f6f7;
+  --tooltip-bg: #101828;
+  --tooltip-fg: #f5f6f7;
   --good: #16a34a;
-  --bad: #dc2626;
-  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+  --bad: #a40e26;
+  --shadow-md: 0 4px 8px rgba(16, 24, 40, 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,59 +27,21 @@
      * deeper colour, cards / dropdowns / toolbars rise to the lighter
      * grey. The previous assignment had cards darker than the page,
      * which read as overly contrasty dark voids on the landing grid. */
-    --bg: #121219;
-    --page-bg: #050507;
-    --fg: #f5f5f7;
-    --muted: #a0a0b0;
-    --accent: #8a9cff;
-    --accent-fg: #050507;
-    --border: #30303a;
-    --card-bg: #121219;
-    --code-bg: #050507;
-    --tooltip-bg: #1a1c22;
-    --tooltip-fg: #f5f5f5;
+    --bg: #1a1a1a;
+    --page-bg: #101010;
+    --fg: #ececec;
+    --muted: #99a1af;
+    --accent: #2cb9d1;
+    --accent-fg: #101010;
+    --border: #272727;
+    --card-bg: #1a1a1a;
+    --code-bg: #101010;
+    --tooltip-bg: #272727;
+    --tooltip-fg: #ececec;
     --good: #4ade80;
-    --bad: #f87171;
+    --bad: #ff8182;
     --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
   }
-}
-
-:root[data-theme='light'] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --page-bg: #fafafa;
-  --fg: #101010;
-  --muted: #666666;
-  --accent: #5971fd;
-  --accent-fg: #ffffff;
-  --border: #ececec;
-  --card-bg: #ffffff;
-  --code-bg: #fafafa;
-  --tooltip-bg: #1a1a1a;
-  --tooltip-fg: #f5f5f5;
-  --good: #16a34a;
-  --bad: #dc2626;
-  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  /* See the matching `@media (prefers-color-scheme: dark)` block above
-   * for the rationale on the --bg / --page-bg / --card-bg assignment. */
-  --bg: #121219;
-  --page-bg: #050507;
-  --fg: #f5f5f7;
-  --muted: #a0a0b0;
-  --accent: #8a9cff;
-  --accent-fg: #050507;
-  --border: #30303a;
-  --card-bg: #121219;
-  --code-bg: #050507;
-  --tooltip-bg: #1a1c22;
-  --tooltip-fg: #f5f5f5;
-  --good: #4ade80;
-  --bad: #f87171;
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
 }
 
 * {
@@ -151,27 +113,17 @@ a:hover {
   z-index: 1000;
   height: var(--header-height);
   border-bottom: 1px solid var(--border);
-  background: rgba(250, 250, 250, 0.95);
-  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  background: rgba(245, 246, 247, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .sticky-header {
-    background: rgba(18, 18, 25, 0.95);
+  .sticky-header {
+    background: rgba(26, 26, 26, 0.95);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
-}
-
-:root[data-theme='dark'] .sticky-header {
-  background: rgba(18, 18, 25, 0.95);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-}
-
-:root[data-theme='light'] .sticky-header {
-  background: rgba(250, 250, 250, 0.95);
-  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
 }
 
 .header-content {
@@ -259,25 +211,12 @@ a:hover {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .logo-light {
+  .logo-light {
     display: none;
   }
-  :root:not([data-theme='light']) .logo-dark {
+  .logo-dark {
     display: block;
   }
-}
-
-:root[data-theme='dark'] .logo-light {
-  display: none;
-}
-:root[data-theme='dark'] .logo-dark {
-  display: block;
-}
-:root[data-theme='light'] .logo-light {
-  display: block;
-}
-:root[data-theme='light'] .logo-dark {
-  display: none;
 }
 
 .site-title {
@@ -335,32 +274,8 @@ a:hover {
   transform: translateY(-1px);
 }
 
-.theme-toggle {
-  min-width: 4.25rem;
-}
-
 .btn-icon {
   flex: 0 0 auto;
-}
-
-.theme-icon-dark {
-  display: none;
-}
-
-.theme-toggle[data-next-theme='dark'] .theme-icon-light {
-  display: none;
-}
-
-.theme-toggle[data-next-theme='dark'] .theme-icon-dark {
-  display: block;
-}
-
-.theme-toggle[data-next-theme='light'] .theme-icon-light {
-  display: block;
-}
-
-.theme-toggle[data-next-theme='light'] .theme-icon-dark {
-  display: none;
 }
 
 .repo-link {
@@ -1490,9 +1405,6 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .control-btn {
     padding: 0.4rem 0.55rem;
-  }
-  .theme-toggle {
-    min-width: 3.25rem;
   }
   .repo-link {
     padding: 0.4rem 0.55rem;

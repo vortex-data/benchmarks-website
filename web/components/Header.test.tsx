@@ -36,12 +36,6 @@ describe('Header (server-rendered chrome)', () => {
     expect(matches).toHaveLength(2);
   });
 
-  it('renders the theme toggle with the v3 server-default label', () => {
-    expect(html).toContain('data-role="theme-toggle"');
-    expect(html).toContain('data-next-theme="light"');
-    expect(html).toContain('theme-toggle-label');
-  });
-
   it('renders the global filter dropdown with one chip per universe value', () => {
     expect(html).toContain('data-role="global-filter-bar"');
     expect(html).toContain('data-role="filter-trigger"');
