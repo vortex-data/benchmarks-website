@@ -1665,8 +1665,8 @@ class ChartController {
 
   /**
    * Re-evaluate every dataset under the layered filter resolution: per-card
-   * legend overrides win, then the per-group hidden-series filter, then the
-   * global engine/format filter.
+   * legend overrides win, then explicit per-group show/hide choices, while the
+   * global engine/format filter supplies the fallback visibility.
    */
   applyFilters(): void {
     const state = this.state;
@@ -1682,9 +1682,8 @@ class ChartController {
       }
       // `dataset.hidden` directly (not `setDatasetVisibility`) so the legend
       // stays in sync; the visibility map is a separate channel.
-      ds.hidden =
-        !seriesPassesGroupFilter(group, ds.label ?? '') ||
-        !seriesPassesFilter(ds.benchMeta, global.active, global.universe);
+      const globalVisible = seriesPassesFilter(ds.benchMeta, global.active, global.universe);
+      ds.hidden = !seriesPassesGroupFilter(group, ds.label ?? '', globalVisible);
     }
     chart.update('none');
   }
@@ -1789,7 +1788,7 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
   );
   useEffect(() => {
     controllerRef.current?.applyFilters();
-  }, [globalFilter, groupState.hiddenSeries]);
+  }, [globalFilter, groupState.hiddenSeries, groupState.shownSeries]);
 
   // Broadcast the per-group Y override to non-sticky charts; `null` (the
   // resting default and the post-Reset state) reverts to linear.

@@ -64,6 +64,37 @@ describe('GroupSection', () => {
     expect(html).toContain('2 charts');
   });
 
+  it('links the group to its benchmark doc in the monorepo', () => {
+    const html = renderToStaticMarkup(
+      <GroupSection
+        group={RANDOM_ACCESS}
+        anchor="random-access"
+        startIndex={0}
+        universe={UNIVERSE}
+      />,
+    );
+    expect(html).toContain('class="group-docs-link"');
+    expect(html).toContain(
+      'title="View a detailed description of the Random Access benchmark on GitHub"',
+    );
+    expect(html).toContain(
+      'href="https://github.com/vortex-data/vortex/blob/develop/benchmarks/random-access-bench/README.md"',
+    );
+    expect(html).toContain('target="_blank"');
+  });
+
+  it('omits the docs link when the group slug does not parse', () => {
+    const html = renderToStaticMarkup(
+      <GroupSection
+        group={{ ...RANDOM_ACCESS, slug: 'not-a-slug' }}
+        anchor="random-access"
+        startIndex={0}
+        universe={UNIVERSE}
+      />,
+    );
+    expect(html).not.toContain('group-docs-link');
+  });
+
   it('renders the copy-link button in the summary header', () => {
     const html = renderToStaticMarkup(
       <GroupSection

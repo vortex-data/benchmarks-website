@@ -9,8 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // function through unchanged so the cached wrappers still invoke the real query.
 // `vi.hoisted` lifts the capture array alongside the hoisted `vi.mock` factory,
 // so it exists when `data-cache.ts` calls `unstable_cache` at import time.
-const { cacheCalls } = vi.hoisted(() => ({
+const { cacheCalls, retryGroupCacheFill, withGroupCacheFillLock } = vi.hoisted(() => ({
   cacheCalls: [] as { keyParts: string[]; options: { tags?: string[]; revalidate?: number } }[],
+  retryGroupCacheFill: vi.fn((read: () => Promise<unknown>) => read()),
+  withGroupCacheFillLock: vi.fn((fill: () => Promise<unknown>) => fill()),
 }));
 vi.mock('next/cache', () => ({
   unstable_cache: (
@@ -21,6 +23,11 @@ vi.mock('next/cache', () => ({
     cacheCalls.push({ keyParts, options });
     return fn;
   },
+}));
+
+vi.mock('@/lib/cache-fill', () => ({
+  withGroupCacheFillLock,
+  retryGroupCacheFill,
 }));
 
 vi.mock('@/lib/queries', () => ({
@@ -47,12 +54,18 @@ import {
 
 afterEach(() => {
   cacheCalls.length = 0;
+  retryGroupCacheFill.mockClear();
+  withGroupCacheFillLock.mockClear();
 });
 
 describe('data-cache wrappers', () => {
   it('tags every wrapper with the shared bench-data tag and the backstop TTL', () => {
     expect(BENCH_DATA_TAG).toBe('bench-data');
     expect(DATA_CACHE_BACKSTOP_SECONDS).toBe(86400);
+    expect(cacheCalls.map((call) => call.keyParts)).toContainEqual([
+      'data-cache:group-charts:v4:n100',
+    ]);
+    expect(cacheCalls.map((call) => call.keyParts)).toContainEqual(['data-cache:groups:v4']);
     for (const call of cacheCalls) {
       expect(call.options.tags).toEqual([BENCH_DATA_TAG]);
       expect(call.options.revalidate).toBe(DATA_CACHE_BACKSTOP_SECONDS);
@@ -65,5 +78,7 @@ describe('data-cache wrappers', () => {
     await expect(cachedFilterUniverse()).resolves.toEqual({ engines: [], formats: [] });
     await expect(cachedDefaultGroupCharts('gs')).resolves.toEqual({ name: 'g', charts: [] });
     await expect(cachedDefaultChartPayload('cs')).resolves.toEqual({ display_name: 'c' });
+    expect(withGroupCacheFillLock).toHaveBeenCalledTimes(2);
+    expect(retryGroupCacheFill).toHaveBeenCalledTimes(2);
   });
 });

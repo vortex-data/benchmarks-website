@@ -44,6 +44,44 @@
   }
 }
 
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --page-bg: #f5f6f7;
+  --fg: #101828;
+  --muted: #4a5565;
+  --accent: #0e7490;
+  --accent-fg: #ffffff;
+  --border: #e5e7eb;
+  --card-bg: #ffffff;
+  --code-bg: #f5f6f7;
+  --tooltip-bg: #101828;
+  --tooltip-fg: #f5f6f7;
+  --good: #16a34a;
+  --bad: #a40e26;
+  --shadow-md: 0 4px 8px rgba(16, 24, 40, 0.08);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  /* See the matching `@media (prefers-color-scheme: dark)` block above
+   * for the rationale on the --bg / --page-bg / --card-bg assignment. */
+  --bg: #1a1a1a;
+  --page-bg: #101010;
+  --fg: #ececec;
+  --muted: #99a1af;
+  --accent: #2cb9d1;
+  --accent-fg: #101010;
+  --border: #272727;
+  --card-bg: #1a1a1a;
+  --code-bg: #101010;
+  --tooltip-bg: #272727;
+  --tooltip-fg: #ececec;
+  --good: #4ade80;
+  --bad: #ff8182;
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -120,15 +158,25 @@ a:hover {
 }
 
 @media (prefers-color-scheme: dark) {
-  .sticky-header {
+  :root:not([data-theme='light']) .sticky-header {
     background: rgba(26, 26, 26, 0.95);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
 }
 
+:root[data-theme='dark'] .sticky-header {
+  background: rgba(26, 26, 26, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme='light'] .sticky-header {
+  background: rgba(245, 246, 247, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+}
+
 .header-content {
   /* Sticky-header inner background. v2 maps this to `--bg-secondary`,
-   * the elevated grey in dark mode (`#121219`); v3's `--bg` resolves
+   * the elevated grey in dark mode (`#1a1a1a`); v3's `--bg` resolves
    * to the same colour. Using `--code-bg` here flattened the header
    * against the page in dark mode. */
   background: var(--bg);
@@ -211,12 +259,25 @@ a:hover {
 }
 
 @media (prefers-color-scheme: dark) {
-  .logo-light {
+  :root:not([data-theme='light']) .logo-light {
     display: none;
   }
-  .logo-dark {
+  :root:not([data-theme='light']) .logo-dark {
     display: block;
   }
+}
+
+:root[data-theme='dark'] .logo-light {
+  display: none;
+}
+:root[data-theme='dark'] .logo-dark {
+  display: block;
+}
+:root[data-theme='light'] .logo-light {
+  display: block;
+}
+:root[data-theme='light'] .logo-dark {
+  display: none;
 }
 
 .site-title {
@@ -274,8 +335,32 @@ a:hover {
   transform: translateY(-1px);
 }
 
+.theme-toggle {
+  min-width: 4.25rem;
+}
+
 .btn-icon {
   flex: 0 0 auto;
+}
+
+.theme-icon-dark {
+  display: none;
+}
+
+.theme-toggle[data-next-theme='dark'] .theme-icon-light {
+  display: none;
+}
+
+.theme-toggle[data-next-theme='dark'] .theme-icon-dark {
+  display: block;
+}
+
+.theme-toggle[data-next-theme='light'] .theme-icon-light {
+  display: block;
+}
+
+.theme-toggle[data-next-theme='light'] .theme-icon-dark {
+  display: none;
 }
 
 .repo-link {
@@ -331,6 +416,39 @@ main {
   font-style: italic;
 }
 
+.summary-loading {
+  display: grid;
+  min-height: calc(100vh - var(--header-height) - 5rem);
+  place-items: center;
+}
+
+.summary-loading-panel {
+  width: min(28rem, 100%);
+  padding: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.summary-loading-panel h2 {
+  margin: 1rem 0 0.25rem;
+  font-size: 1.25rem;
+}
+
+.summary-loading-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.chart-spinner.summary-loading-spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-width: 3px;
+}
+
 .group-details {
   width: 100%;
   max-width: none;
@@ -353,7 +471,7 @@ main {
   cursor: pointer;
   display: block;
   /* Elevated surface - v2's `.benchmark-header` uses `--bg-secondary`
-   * (`#121219` in dark mode); `--card-bg` is the v3 alias for that
+   * (`#1a1a1a` in dark mode); `--card-bg` is the v3 alias for that
    * elevated colour. Using `--code-bg` here flattened the disclosure
    * bar against the page in dark mode. */
   background: var(--card-bg);
@@ -439,6 +557,32 @@ main {
 .group-permalink--copied:hover,
 .group-permalink--copied:focus-visible {
   color: var(--accent);
+}
+/*
+ * The docs link next to a group title (GroupDocsLink), pointing at the
+ * benchmark's explainer doc in the monorepo. Sized and coloured like the
+ * permalink button beside it so the summary row reads as one row of quiet
+ * affordances.
+ */
+.group-docs-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  flex-shrink: 0;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+.group-docs-link:hover,
+.group-docs-link:focus-visible {
+  color: var(--fg);
+  background: var(--border);
 }
 /* Screen-reader-only text (the permalink button's copied announcement). */
 .visually-hidden {
@@ -529,7 +673,7 @@ main {
 .group-details > .chart-grid {
   padding: 1.25rem;
   /* Page-level surface behind the chart cards. v2's `.benchmark-graphs`
-   * uses `--bg-color` (`#050507` in dark mode); `--page-bg` is the v3
+   * uses `--bg-color` (`#101010` in dark mode); `--page-bg` is the v3
    * alias for the page colour. Using `--bg` here made the grid behind
    * cards appear lighter than the body, inverting v2's elevation. */
   background: var(--page-bg);
@@ -592,6 +736,26 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 .scores-list {
   column-count: 2;
   column-gap: 1.25rem;
+}
+
+.compression-scores {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.compression-scores-panel {
+  min-width: 0;
+}
+
+.compression-scores-panel + .compression-scores-panel {
+  border-left: 1px solid var(--border);
+  padding-left: 1.25rem;
+  margin-left: 1.25rem;
+}
+
+.compression-scores-list {
+  column-count: 1;
 }
 
 .score-item {
@@ -1406,6 +1570,9 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .control-btn {
     padding: 0.4rem 0.55rem;
   }
+  .theme-toggle {
+    min-width: 3.25rem;
+  }
   .repo-link {
     padding: 0.4rem 0.55rem;
   }
@@ -1469,6 +1636,17 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .scores-list {
     column-count: 1;
+  }
+  .compression-scores {
+    grid-template-columns: 1fr;
+  }
+  .compression-scores-panel + .compression-scores-panel {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding-top: 0.75rem;
+    padding-left: 0;
+    margin-top: 0.75rem;
+    margin-left: 0;
   }
   .score-item {
     align-items: flex-start;

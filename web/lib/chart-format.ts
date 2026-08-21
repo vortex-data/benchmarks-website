@@ -508,27 +508,26 @@ function pickTimeUnit(ref: number | null): {
   return { multiplier: 1e-6, suffix: 'ms', decimals: 2 };
 }
 
-/** Binary multiples to match how DuckDB and on-disk file sizes are typically
- * reported. Steps: B, KiB (1024), MiB, GiB, TiB. */
+/** Decimal byte multiples for chart sizes. Steps: B, KB, MB, GB, TB. */
 function pickBytesUnit(ref: number | null): {
   multiplier: number;
   suffix: string;
   decimals: number;
 } {
-  const k = 1024;
+  const k = 1_000;
   if (ref === null || ref < k) {
     return { multiplier: 1, suffix: 'B', decimals: 0 };
   }
   if (ref < k * k) {
-    return { multiplier: 1 / k, suffix: 'KiB', decimals: 2 };
+    return { multiplier: 1 / k, suffix: 'KB', decimals: 2 };
   }
   if (ref < k * k * k) {
-    return { multiplier: 1 / (k * k), suffix: 'MiB', decimals: 2 };
+    return { multiplier: 1 / (k * k), suffix: 'MB', decimals: 2 };
   }
   if (ref < k * k * k * k) {
-    return { multiplier: 1 / (k * k * k), suffix: 'GiB', decimals: 2 };
+    return { multiplier: 1 / (k * k * k), suffix: 'GB', decimals: 2 };
   }
-  return { multiplier: 1 / (k * k * k * k), suffix: 'TiB', decimals: 2 };
+  return { multiplier: 1 / (k * k * k * k), suffix: 'TB', decimals: 2 };
 }
 
 /**
@@ -1044,15 +1043,25 @@ export function seriesPassesFilter(
   return true;
 }
 
-/** Whether a series label passes a per-group hidden-series filter. */
+/**
+ * Resolve a series label against its group-local override. An explicit local
+ * show or hide wins; otherwise the caller-provided global default applies.
+ */
 export function seriesPassesGroupFilter(
-  filter: { hiddenSeries: readonly string[] } | null | undefined,
+  filter: { hiddenSeries: readonly string[]; shownSeries: readonly string[] } | null | undefined,
   label: string,
+  defaultVisible = true,
 ): boolean {
-  if (!filter || !filter.hiddenSeries) {
+  if (!filter) {
+    return defaultVisible;
+  }
+  if (filter.shownSeries.includes(label)) {
     return true;
   }
-  return !filter.hiddenSeries.includes(label);
+  if (filter.hiddenSeries.includes(label)) {
+    return false;
+  }
+  return defaultVisible;
 }
 
 /**

@@ -282,15 +282,15 @@ describe('pickDisplayUnit', () => {
     });
   });
 
-  it('steps bytes by binary multiples', () => {
+  it('steps bytes by decimal multiples', () => {
     expect(pickDisplayUnit('bytes', [512])).toMatchObject({ suffix: 'B', decimals: 0 });
-    expect(pickDisplayUnit('bytes', [2048])).toMatchObject({ suffix: 'KiB' });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 2])).toMatchObject({ suffix: 'MiB' });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 3])).toMatchObject({
-      suffix: 'GiB',
-      axisLabel: 'Size (GiB)',
+    expect(pickDisplayUnit('bytes', [2_000])).toMatchObject({ suffix: 'KB' });
+    expect(pickDisplayUnit('bytes', [3_000_000])).toMatchObject({ suffix: 'MB' });
+    expect(pickDisplayUnit('bytes', [3_000_000_000])).toMatchObject({
+      suffix: 'GB',
+      axisLabel: 'Size (GB)',
     });
-    expect(pickDisplayUnit('bytes', [3 * 1024 ** 4])).toMatchObject({ suffix: 'TiB' });
+    expect(pickDisplayUnit('bytes', [3_000_000_000_000])).toMatchObject({ suffix: 'TB' });
   });
 
   it('leaves dimensionless and throughput kinds unscaled', () => {
@@ -612,9 +612,11 @@ describe('filter helpers', () => {
     expect(seriesPassesFilter({ engine: 'duckdb' }, active, universe)).toBe(true);
   });
 
-  it('applies the per-group hidden-series filter by label', () => {
-    expect(seriesPassesGroupFilter({ hiddenSeries: ['a'] }, 'a')).toBe(false);
-    expect(seriesPassesGroupFilter({ hiddenSeries: ['a'] }, 'b')).toBe(true);
+  it('applies per-group overrides before the fallback visibility', () => {
+    const filter = { hiddenSeries: ['a'], shownSeries: ['lance'] };
+    expect(seriesPassesGroupFilter(filter, 'a')).toBe(false);
+    expect(seriesPassesGroupFilter(filter, 'lance', false)).toBe(true);
+    expect(seriesPassesGroupFilter(filter, 'b', false)).toBe(false);
     expect(seriesPassesGroupFilter(null, 'a')).toBe(true);
   });
 });

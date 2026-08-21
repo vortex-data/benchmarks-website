@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyGroupMacro,
@@ -10,8 +10,10 @@ import {
   ensureGroupBundle,
   getGlobalFilterSnapshot,
   getGroupSnapshot,
+  groupSeriesIsVisible,
   hydrationQueue,
   initGlobalFilter,
+  initGroupFilter,
   noteChartRecentData,
   noteGroupSeries,
   resetGroup,
@@ -86,6 +88,20 @@ describe('global filter store', () => {
 });
 
 describe('per-group store', () => {
+  beforeEach(() => {
+    initGlobalFilter(UNIVERSE, [], []);
+  });
+
+  it('restores a URL filter without discarding hydrated series metadata', () => {
+    const slug = 'group-url-filter';
+    noteGroupSeries(slug, { a: { engine: 'duckdb' } });
+    initGroupFilter(slug, ['b', 'a', 'b'], ['lance', 'lance']);
+    const snap = getGroupSnapshot(slug);
+    expect(snap.hiddenSeries).toEqual(['b', 'a']);
+    expect(snap.shownSeries).toEqual(['lance']);
+    expect(snap.knownSeries).toEqual({ a: { engine: 'duckdb' } });
+  });
+
   it('accumulates known series idempotently and notifies', () => {
     const slug = 'group-known-series';
     let notified = 0;
@@ -107,6 +123,24 @@ describe('per-group store', () => {
     expect(getGroupSnapshot(slug).hiddenSeries).toEqual(['a']);
     toggleGroupSeries(slug, 'a');
     expect(getGroupSnapshot(slug).hiddenSeries).toEqual([]);
+    expect(getGroupSnapshot(slug).shownSeries).toEqual([]);
+  });
+
+  it('restores a globally hidden series with a local visible override', () => {
+    const slug = 'group-global-fallback';
+    const universe = { ...UNIVERSE, formats: [...UNIVERSE.formats, 'lance'] };
+    initGlobalFilter(universe, [], []);
+    noteGroupSeries(slug, { lance: { format: 'lance' } });
+
+    expect(groupSeriesIsVisible(getGroupSnapshot(slug), 'lance')).toBe(false);
+    toggleGroupSeries(slug, 'lance');
+    expect(getGroupSnapshot(slug).shownSeries).toEqual(['lance']);
+    expect(groupSeriesIsVisible(getGroupSnapshot(slug), 'lance')).toBe(true);
+
+    toggleGroupSeries(slug, 'lance');
+    expect(getGroupSnapshot(slug).shownSeries).toEqual([]);
+    expect(getGroupSnapshot(slug).hiddenSeries).toEqual(['lance']);
+    expect(groupSeriesIsVisible(getGroupSnapshot(slug), 'lance')).toBe(false);
   });
 
   it('bulk-toggles matching series via engine/format macros', () => {
@@ -127,12 +161,32 @@ describe('per-group store', () => {
     expect(getGroupSnapshot(slug).hiddenSeries).toEqual([]);
   });
 
+  it('uses a macro to restore every match hidden by the global default', () => {
+    const slug = 'group-global-macro';
+    const universe = { ...UNIVERSE, formats: [...UNIVERSE.formats, 'lance'] };
+    initGlobalFilter(universe, [], []);
+    noteGroupSeries(slug, {
+      'datafusion:lance': { engine: 'datafusion', format: 'lance' },
+      'duckdb:lance': { engine: 'duckdb', format: 'lance' },
+    });
+
+    applyGroupMacro(slug, 'format', 'lance');
+    expect(getGroupSnapshot(slug).shownSeries.sort()).toEqual(['datafusion:lance', 'duckdb:lance']);
+    applyGroupMacro(slug, 'format', 'lance');
+    expect(getGroupSnapshot(slug).shownSeries).toEqual([]);
+    expect(getGroupSnapshot(slug).hiddenSeries.sort()).toEqual([
+      'datafusion:lance',
+      'duckdb:lance',
+    ]);
+  });
+
   it('clears the series filter via the "*" chip without touching Y', () => {
     const slug = 'group-clear';
     toggleGroupSeries(slug, 'a');
     setGroupY(slug, 'log');
     clearGroupSeriesFilter(slug);
     expect(getGroupSnapshot(slug).hiddenSeries).toEqual([]);
+    expect(getGroupSnapshot(slug).shownSeries).toEqual([]);
     expect(getGroupSnapshot(slug).groupY).toBe('log');
   });
 
@@ -144,6 +198,7 @@ describe('per-group store', () => {
     resetGroup(slug);
     const snap = getGroupSnapshot(slug);
     expect(snap.hiddenSeries).toEqual([]);
+    expect(snap.shownSeries).toEqual([]);
     expect(snap.groupY).toBeNull();
     expect(Object.keys(snap.knownSeries)).toEqual(['s1']);
   });

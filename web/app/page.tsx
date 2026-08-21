@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { Suspense } from 'react';
+
 import { Footer } from '@/components/Footer';
 import { GroupNav } from '@/components/GroupNav';
 import { GroupSection } from '@/components/GroupSection';
 import { Header } from '@/components/Header';
+import { HomeLoading } from '@/components/HomeLoading';
 import { groupAnchors } from '@/lib/anchor';
 import { parseFilterCsv, singleSearchParam } from '@/lib/chart-format';
 import { cachedFilterUniverse, cachedGroups } from '@/lib/data-cache';
+import { parseGroupFilter, type GroupFilter } from '@/lib/group-filter';
 
 // Rendered per request, with CDN caching layered on by `vercel.json`: each
 // render reads every group from Postgres via `collectGroups()`, and Vercel's
@@ -29,9 +33,9 @@ export const dynamic = 'force-dynamic';
  * chart's index is unique across every group (matching v3's `landing_body`
  * counter).
  *
- * `?engine=` / `?format=` are the global filter's URL allowlists (CSV); they
- * seed the client filter store via the header's filter bar, exactly as v3's
- * `filter_state_script` bridge did.
+ * `?engine=` / `?format=` are the global filter's URL allowlists (CSV). A
+ * A readable `?group=` anchor plus repeated `?hide=` / `?show=` values restores
+ * the target group's local series overrides.
  */
 export default async function Home({
   searchParams,
@@ -41,7 +45,28 @@ export default async function Home({
   const params = await searchParams;
   const initialEngines = parseFilterCsv(singleSearchParam(params.engine));
   const initialFormats = parseFilterCsv(singleSearchParam(params.format));
+  const initialGroupFilter = parseGroupFilter(params);
 
+  return (
+    <Suspense fallback={<HomeLoading />}>
+      <HomeContent
+        initialEngines={initialEngines}
+        initialFormats={initialFormats}
+        initialGroupFilter={initialGroupFilter}
+      />
+    </Suspense>
+  );
+}
+
+async function HomeContent({
+  initialEngines,
+  initialFormats,
+  initialGroupFilter,
+}: {
+  initialEngines: string[];
+  initialFormats: string[];
+  initialGroupFilter: GroupFilter | null;
+}) {
   const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);
   // Human-readable permalink anchors, one per section in render order (see
   // lib/anchor.ts for why these are not the opaque API slugs).
@@ -65,6 +90,11 @@ export default async function Home({
             {groups.map((group, i) => {
               const startIndex = nextIndex;
               nextIndex += group.charts.length;
+              // Accept opaque values copied by the first permalink version,
+              // but generate readable anchors for every new link.
+              const ownsInitialFilter =
+                initialGroupFilter?.groupAnchor === anchors[i] ||
+                initialGroupFilter?.groupAnchor === group.slug;
               return (
                 <GroupSection
                   key={group.slug}
@@ -72,6 +102,12 @@ export default async function Home({
                   anchor={anchors[i]}
                   startIndex={startIndex}
                   universe={universe}
+                  initialHiddenSeries={
+                    ownsInitialFilter ? (initialGroupFilter?.hiddenSeries ?? []) : []
+                  }
+                  initialShownSeries={
+                    ownsInitialFilter ? (initialGroupFilter?.shownSeries ?? []) : []
+                  }
                 />
               );
             })}

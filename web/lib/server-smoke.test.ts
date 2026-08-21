@@ -95,6 +95,7 @@ describe.skipIf(!dockerAvailable() || !BUILD_PRESENT)(
       const html = await (await fetch(`${BASE}/`)).text();
       // Header chrome (PR-4.4.b islands, server-rendered).
       expect(html).toContain('data-role="nav-mobile-toggle"');
+      expect(html).toContain('data-role="theme-toggle"');
       expect(html).toContain('data-action="expand-all"');
       expect(html).toContain('data-role="global-filter-bar"');
       // The fixture's engines surface as filter chips via collectFilterUniverse.
@@ -105,6 +106,8 @@ describe.skipIf(!dockerAvailable() || !BUILD_PRESENT)(
       expect(html).toContain('data-role="group-toolbar"');
       expect(html).toContain('data-role="scope-slider"');
       expect(html).toContain('data-role="range-strip"');
+      // The pre-paint theme bootstrap is inlined in <head>.
+      expect(html).toContain('localStorage.getItem("bench-theme")');
     });
 
     it('serves the chart permalink page with the v3 title and meta line', async () => {

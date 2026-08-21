@@ -12,8 +12,7 @@ describe('groupDescription', () => {
       'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
     );
     expect(groupDescription('Compression')).toBe(
-      'Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet files ' +
-        '(with zstd page compression)',
+      'Measures write and scan throughput for Vortex, Parquet, and Lance files',
     );
     expect(groupDescription('Compression Size')).toBe(
       'Compares compressed file sizes and compression ratios across different encoding strategies',

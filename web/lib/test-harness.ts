@@ -90,11 +90,9 @@ export async function startBenchContainer(
   return container;
 }
 
-// The canonical web-ui fixture, mirroring `server/tests/common/mod.rs`: three
-// oldest-first commits, each carrying the same record set with a per-commit
-// `bias` added so the series are non-flat. Fact rows are INSERTed directly
-// rather than POSTed as ingest envelopes (the ingest path is still Rust-only),
-// with synthetic `measurement_id`s since the read queries never read them.
+// The canonical web UI fixture contains three oldest-first commits. Vortex and
+// Parquet occur on each commit. Lance occurs only on the oldest commit to test
+// its sparse cadence. Each commit adds a bias to keep other series non-flat.
 export const COMMITS: ReadonlyArray<readonly [string, string, string]> = [
   ['1'.repeat(40), '2026-04-23T12:00:00Z', 'first commit'],
   ['2'.repeat(40), '2026-04-24T12:00:00Z', 'second commit'],
@@ -143,12 +141,15 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
         [mid(), sha, queryIdx, engine, format, valueNs],
       );
     }
-    const compTimes: ReadonlyArray<readonly [string, string, number]> = [
+    const compTimes: Array<readonly [string, string, number]> = [
       ['vortex-file-compressed', 'encode', 9_000 + bias],
       ['vortex-file-compressed', 'decode', 5_000 + bias],
       ['parquet', 'encode', 18_000 + 2 * bias],
       ['parquet', 'decode', 10_000 + 2 * bias],
     ];
+    if (i === 0) {
+      compTimes.push(['lance', 'encode', 36_000], ['lance', 'decode', 20_000]);
+    }
     for (const [format, op, valueNs] of compTimes) {
       await pool.query(
         `INSERT INTO compression_times
@@ -158,10 +159,13 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
         [mid(), sha, format, op, valueNs],
       );
     }
-    const compSizes: ReadonlyArray<readonly [string, number]> = [
+    const compSizes: Array<readonly [string, number]> = [
       ['vortex-file-compressed', 4_000 + bias],
       ['parquet', 8_000 + 2 * bias],
     ];
+    if (i === 0) {
+      compSizes.push(['lance', 16_000]);
+    }
     for (const [format, valueBytes] of compSizes) {
       await pool.query(
         `INSERT INTO compression_sizes

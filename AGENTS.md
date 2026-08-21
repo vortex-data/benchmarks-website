@@ -42,6 +42,13 @@ rules below are the parts that were worth keeping.
   payload ([`web/components/Chart.tsx`](web/components/Chart.tsx)). The single exception is the
   latest-100 to full-history zoom-out path: when the user first zooms past the materialized
   window, the chart lazy-fetches `?n=all` once and replaces the payload in place.
+- **Group docs links mirror the monorepo's `Benchmark::doc_path`.**
+  [`web/lib/benchmark-docs.ts`](web/lib/benchmark-docs.ts) maps each SQL dataset name to the
+  benchmark's explainer doc in `vortex-data/vortex`, which is the same path that the monorepo's PR
+  benchmark comment uses. The producer does not put `doc_path` on the wire, and upstream does not
+  enforce a path convention, so update the explicit mapping when a suite is added or its doc moves.
+  Groups without a matching explainer render no docs link. Do not guess a path or link to an
+  unrelated general guide.
 - **Don't write a server-side classifier for live ingest.** The emitter produces structured
   records directly. Classifying loose name strings at read time was the v2-era weakness every
   later generation existed to escape; it belongs nowhere in the live pipeline.

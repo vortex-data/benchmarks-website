@@ -3,6 +3,7 @@
 
 import { unstable_cache } from 'next/cache';
 
+import { retryGroupCacheFill, withGroupCacheFillLock } from '@/lib/cache-fill';
 import type { FilterUniverse } from '@/lib/chart-format';
 import {
   chartPayload,
@@ -40,14 +41,23 @@ export const DATA_CACHE_BACKSTOP_SECONDS = 86400;
 
 const CACHE_OPTIONS = { tags: [BENCH_DATA_TAG], revalidate: DATA_CACHE_BACKSTOP_SECONDS };
 
+/**
+ * Version of cached group payloads, including their embedded summary wire shape.
+ * This value must change when a deployment cannot read the preceding shape.
+ * It is independent of the producer-facing benchmark schema version.
+ */
+const GROUP_PAYLOAD_CACHE_VERSION = 'v4';
+
 // The default last-100 group bundle, keyed by group slug. The slug is the cache
 // key (an `unstable_cache` argument), so one wrapper covers every group. A
 // `null` result (the group has no data) is cached too, which is correct: a
 // missing group stays a 404 until the next ingest revalidates the tag.
 const groupChartsCached = unstable_cache(
   async (slug: string): Promise<GroupChartsResponse | null> =>
-    collectGroupCharts(groupKeyFromSlug(slug), { kind: 'last', n: DEFAULT_COMMIT_WINDOW }),
-  ['data-cache:group-charts:n100'],
+    withGroupCacheFillLock(() =>
+      collectGroupCharts(groupKeyFromSlug(slug), { kind: 'last', n: DEFAULT_COMMIT_WINDOW }),
+    ),
+  [`data-cache:group-charts:${GROUP_PAYLOAD_CACHE_VERSION}:n100`],
   CACHE_OPTIONS,
 );
 
@@ -59,8 +69,8 @@ const chartPayloadCached = unstable_cache(
 );
 
 const groupsCached = unstable_cache(
-  async (): Promise<Group[]> => collectGroups(),
-  ['data-cache:groups'],
+  async (): Promise<Group[]> => withGroupCacheFillLock(collectGroups),
+  [`data-cache:groups:${GROUP_PAYLOAD_CACHE_VERSION}`],
   CACHE_OPTIONS,
 );
 
@@ -72,7 +82,7 @@ const filterUniverseCached = unstable_cache(
 
 /** The default last-100 bundle for one group, served from the Data Cache. */
 export function cachedDefaultGroupCharts(slug: string): Promise<GroupChartsResponse | null> {
-  return groupChartsCached(slug);
+  return retryGroupCacheFill(() => groupChartsCached(slug));
 }
 
 /** The default last-100 payload for one chart, served from the Data Cache. */
@@ -82,7 +92,7 @@ export function cachedDefaultChartPayload(slug: string): Promise<ChartResponse |
 
 /** Every group + chart link, served from the Data Cache. */
 export function cachedGroups(): Promise<Group[]> {
-  return groupsCached();
+  return retryGroupCacheFill(groupsCached);
 }
 
 /** The filter chip universe, served from the Data Cache. */

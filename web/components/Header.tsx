@@ -14,7 +14,7 @@ import type { FilterUniverse } from '@/lib/chart-format';
  * `server/src/html/render.rs::site_header` plus the section-18 header controls
  * of `chart-init.js`: the hamburger-toggled mobile nav panel (expand/collapse
  * all, the global filter dropdown, and the mobile-only GitHub link), the
- * theme-aware logo, and the desktop GitHub link.
+ * theme-aware logo, the desktop GitHub link, and the theme toggle.
  *
  * Expand/Collapse All writes `details.open` on every group disclosure
  * directly; the native `toggle` event (which also fires for scripted changes)
@@ -24,6 +24,12 @@ import type { FilterUniverse } from '@/lib/chart-format';
  * The filter dropdown renders only when the universe has at least one chip,
  * matching v3's `show_filters` guard. Pages without chart data (or without the
  * universe fetched) pass an empty universe and get the chrome-only header.
+ *
+ * Theming: the html `data-theme` attribute plus `localStorage["bench-theme"]`
+ * are the source of truth (seeded pre-paint by the theme-bootstrap inline
+ * script in the root layout). The server renders the v3 default label "Light";
+ * the mount effect immediately corrects the label to name the NEXT theme, the
+ * exact v3 `updateThemeButtons` sequencing.
  */
 export function Header({
   universe,
@@ -35,8 +41,15 @@ export function Header({
   initialFormats?: string[];
 }) {
   const [navOpen, setNavOpen] = useState(false);
+  const [nextTheme, setNextTheme] = useState<'light' | 'dark'>('light');
   const navRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // Label/attribute sync on mount (the bootstrap script may have set a stored
+  // theme before hydration) and on every toggle.
+  useEffect(() => {
+    setNextTheme(effectiveTheme() === 'light' ? 'dark' : 'light');
+  }, []);
 
   // Close the mobile nav panel on outside click and on Escape.
   useEffect(() => {
@@ -65,6 +78,18 @@ export function Header({
   const showFilters =
     universe !== undefined && (universe.engines.length > 0 || universe.formats.length > 0);
 
+  const onThemeToggle = (): void => {
+    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('bench-theme', next);
+    } catch {
+      // Private browsing modes may reject storage writes; the in-page theme
+      // still applies for this visit.
+    }
+    setNextTheme(next === 'light' ? 'dark' : 'light');
+  };
+
   return (
     <header className="sticky-header">
       <div className="header-content">
@@ -87,9 +112,21 @@ export function Header({
           </button>
           <Link className="logo-link" href="/" aria-label="bench.vortex.dev home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="site-logo logo-light" src="/Vortex_Black_NoBG.png" alt="Vortex" />
+            <img
+              className="site-logo logo-light"
+              src="/Vortex_Black_NoBG.svg"
+              alt="Vortex"
+              width={654}
+              height={190}
+            />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="site-logo logo-dark" src="/Vortex_White_NoBG.png" alt="Vortex" />
+            <img
+              className="site-logo logo-dark"
+              src="/Vortex_White_NoBG.svg"
+              alt="Vortex"
+              width={654}
+              height={190}
+            />
           </Link>
           <h1 className="site-title">Vortex Benchmarks</h1>
         </div>
@@ -150,10 +187,34 @@ export function Header({
             <GitHubIcon />
             <span>GitHub</span>
           </a>
+          <button
+            className="control-btn theme-toggle"
+            type="button"
+            data-role="theme-toggle"
+            data-next-theme={nextTheme}
+            aria-label={`Switch to ${nextTheme} mode`}
+            onClick={onThemeToggle}
+          >
+            <SunIcon />
+            <MoonIcon />
+            <span className="theme-toggle-label">{nextTheme === 'dark' ? 'Dark' : 'Light'}</span>
+          </button>
         </div>
       </div>
     </header>
   );
+}
+
+/** The forced or media-derived effective theme (`chart-init.js::effectiveTheme`). */
+function effectiveTheme(): 'light' | 'dark' {
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced === 'light' || forced === 'dark') {
+    return forced;
+  }
+  if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
 }
 
 /** Open or close every group disclosure. Writing `details.open` fires each
@@ -238,6 +299,52 @@ function ChevronsUpIcon() {
     >
       <path d="m17 18-5-5-5 5" />
       <path d="m17 11-5-5-5 5" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg
+      className="btn-icon theme-icon theme-icon-light"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg
+      className="btn-icon theme-icon theme-icon-dark"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.99 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 20.99 12.79z" />
     </svg>
   );
 }

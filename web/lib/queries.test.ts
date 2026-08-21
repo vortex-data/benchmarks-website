@@ -107,7 +107,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
     // (vector_search_runs) must NOT leak in as a format.
     expect(universe).toEqual({
       engines: ['datafusion', 'duckdb'],
-      formats: ['parquet', 'vortex-file-compressed'],
+      formats: ['lance', 'parquet', 'vortex-file-compressed'],
     });
   });
 
@@ -162,6 +162,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
       parseCommitWindow(null),
     );
     expect(payload?.series).toEqual({
+      lance: [16_000, null, null],
       parquet: [8_000, 108_000, 208_000],
       'vortex-file-compressed': [4_000, 54_000, 104_000],
     });
@@ -318,6 +319,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
       format: 'vortex-file-compressed',
     });
     expect(cs?.series_meta?.parquet).toEqual({ format: 'parquet' });
+    expect(cs?.series_meta?.lance).toEqual({ format: 'lance' });
   });
 });
 
@@ -325,18 +327,17 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
 // exercised end-to-end only by the Docker-gated collectGroups test; this no-DB
 // test pins the ordering directly so it stays verifiable without testcontainers.
 describe('compareGroupSortKey canonical group ordering (no DB)', () => {
-  it('orders by the curated GROUP_ORDER (Random Access before PolarSignals Profiling)', () => {
+  it('orders Random Access directly before Clickbench', () => {
     const sorted = ['PolarSignals Profiling', 'Random Access', 'Clickbench', 'Compression'].sort(
       compareGroupSortKey,
     );
     expect(sorted).toEqual([
       'Compression',
-      'Clickbench',
       'Random Access',
+      'Clickbench',
       'PolarSignals Profiling',
     ]);
-    // Random Access now precedes PolarSignals Profiling (Stat/Pop Genetics sits between them).
-    expect(sorted.indexOf('Random Access')).toBeLessThan(sorted.indexOf('PolarSignals Profiling'));
+    expect(sorted.indexOf('Random Access') + 1).toBe(sorted.indexOf('Clickbench'));
   });
 
   it('sorts listed groups before unknown groups, unknowns alphabetically last', () => {

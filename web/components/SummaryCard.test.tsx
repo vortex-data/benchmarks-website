@@ -43,53 +43,53 @@ describe('SummaryCard', () => {
     expect(render({ type: 'randomAccess', title: 't', rankings: [], explanation: 'e' })).toBe('');
   });
 
-  it('renders both compression speedups when present', () => {
+  it('renders compression rankings with ratios', () => {
     const html = render({
       type: 'compression',
-      title: 'Compression Throughput vs Parquet',
-      compressRatio: 2.5,
-      decompressRatio: 1.8,
-      datasetCount: 3,
+      title: 'Compression Throughput',
+      rankings: [
+        { name: 'vortex-file-compressed', operation: 'encode', ratio: 2.5 },
+        { name: 'parquet', operation: 'encode', ratio: 1 },
+        { name: 'lance', operation: 'encode', ratio: 0.8 },
+        { name: 'vortex-file-compressed', operation: 'decode', ratio: 1.8 },
+        { name: 'parquet', operation: 'decode', ratio: 1 },
+        { name: 'lance', operation: 'decode', ratio: 0.6 },
+      ],
       explanation: 'higher is better',
     });
-    expect(html).toContain('Write Speed (Compression)');
+    expect(html).toContain('<h3 class="scores-title">Compression Throughput</h3>');
+    expect(html).toContain('<h3 class="scores-title">Decompression Throughput</h3>');
+    expect(html).not.toContain('compression-scores-subtitle');
+    expect(html).toContain('class="compression-scores-panel"');
+    expect(html).toContain('>vortex</span>');
     expect(html).toContain('2.50x');
-    expect(html).toContain('Scan Speed (Decompression)');
+    expect(html).toContain('>lance</span>');
     expect(html).toContain('1.80x');
+    expect(html).not.toContain('GB/s');
+    expect(html.match(/#1/g)).toHaveLength(2);
   });
 
-  it('omits a missing compression speedup row', () => {
-    const html = render({
-      type: 'compression',
-      title: 't',
-      compressRatio: 2.5,
-      datasetCount: 1,
-      explanation: 'e',
-    });
-    expect(html).toContain('Write Speed (Compression)');
-    expect(html).not.toContain('Scan Speed (Decompression)');
+  it('renders nothing for a compression card with no rankings', () => {
+    expect(render({ type: 'compression', title: 't', rankings: [], explanation: 'e' })).toBe('');
   });
 
-  it('renders nothing for a compression card with neither ratio', () => {
-    expect(render({ type: 'compression', title: 't', datasetCount: 0, explanation: 'e' })).toBe('');
-  });
-
-  it('renders min/mean/max for a compressionSize card', () => {
+  it('renders compression-size rankings with ratios', () => {
     const html = render({
       type: 'compressionSize',
       title: 'Compression Size Summary',
-      minRatio: 0.3,
-      meanRatio: 0.45,
-      maxRatio: 0.6,
-      datasetCount: 4,
+      rankings: [
+        { name: 'vortex-file-compressed', ratio: 0.45 },
+        { name: 'parquet', ratio: 1 },
+        { name: 'lance', ratio: 1.2 },
+      ],
       explanation: 'lower is better',
     });
-    expect(html).toContain('Min Size Ratio');
-    expect(html).toContain('0.30x');
-    expect(html).toContain('Mean Size Ratio');
     expect(html).toContain('0.45x');
-    expect(html).toContain('Max Size Ratio');
-    expect(html).toContain('0.60x');
+    expect(html).toContain('parquet');
+    expect(html).toContain('1.00x');
+    expect(html).toContain('lance');
+    expect(html).toContain('1.20x');
+    expect(html).not.toContain('GB');
   });
 
   it('renders a queryBenchmark card with scores and total runtimes', () => {
