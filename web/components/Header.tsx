@@ -114,18 +114,18 @@ export function Header({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className="site-logo logo-light"
-              src="/Vortex_Black_NoBG.png"
+              src="/Vortex_Black_NoBG.svg"
               alt="Vortex"
-              width={248}
-              height={72}
+              width={654}
+              height={190}
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className="site-logo logo-dark"
-              src="/Vortex_White_NoBG.png"
+              src="/Vortex_White_NoBG.svg"
               alt="Vortex"
-              width={248}
-              height={72}
+              width={654}
+              height={190}
             />
           </Link>
           <h1 className="site-title">Vortex Benchmarks</h1>
