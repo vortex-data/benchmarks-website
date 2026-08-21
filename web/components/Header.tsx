@@ -112,9 +112,21 @@ export function Header({
           </button>
           <Link className="logo-link" href="/" aria-label="bench.vortex.dev home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="site-logo logo-light" src="/Vortex_Black_NoBG.png" alt="Vortex" />
+            <img
+              className="site-logo logo-light"
+              src="/Vortex_Black_NoBG.png"
+              alt="Vortex"
+              width={248}
+              height={72}
+            />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="site-logo logo-dark" src="/Vortex_White_NoBG.png" alt="Vortex" />
+            <img
+              className="site-logo logo-dark"
+              src="/Vortex_White_NoBG.png"
+              alt="Vortex"
+              width={248}
+              height={72}
+            />
           </Link>
           <h1 className="site-title">Vortex Benchmarks</h1>
         </div>
