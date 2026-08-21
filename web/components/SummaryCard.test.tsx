@@ -16,15 +16,15 @@ describe('SummaryCard', () => {
     expect(render(undefined)).toBe('');
   });
 
-  it('renders a randomAccess card with ranks, ns times, and ratios', () => {
+  it('renders a randomAccess card with ranks, scores, and total runtimes', () => {
     const html = render({
       type: 'randomAccess',
       title: 'Random Access Performance',
       rankings: [
-        { name: 'vortex', time: 1_500_000, ratio: 1 },
-        { name: 'parquet', time: 3_000_000, ratio: 2 },
+        { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 2, total: 2 },
+        { name: 'parquet', score: 2, totalRuntime: 3_000_000, measured: 2, total: 2 },
       ],
-      explanation: 'Random access time | Ratio to fastest (lower is better)',
+      explanation: 'Geomean of take time ratio to fastest across every chart (lower is better)',
     });
     expect(html).toContain('class="benchmark-scores-summary"');
     expect(html).toContain('<h3 class="scores-title">Random Access Performance</h3>');
@@ -36,7 +36,25 @@ describe('SummaryCard', () => {
     expect(html).toContain('parquet');
     expect(html).toContain('3.00 ms');
     expect(html).toContain('2.00x');
-    expect(html).toContain('Random access time | Ratio to fastest (lower is better)');
+    expect(html).toContain(
+      'Geomean of take time ratio to fastest across every chart (lower is better)',
+    );
+  });
+
+  it('flags a partially measured series in its hover text', () => {
+    const html = render({
+      type: 'randomAccess',
+      title: 'Random Access Performance',
+      rankings: [
+        { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 9, total: 9 },
+        { name: 'lance', score: 3, totalRuntime: 3_000_000, measured: 4, total: 9 },
+      ],
+      explanation: 'e',
+    });
+    // The full-coverage series keeps a bare label; the partial one says so, so
+    // a penalty-inflated score is never presented as a like-for-like number.
+    expect(html).toContain('title="vortex"');
+    expect(html).toContain('measured in 4 of 9 charts');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
@@ -96,12 +114,34 @@ describe('SummaryCard', () => {
     const html = render({
       type: 'queryBenchmark',
       title: 'Performance Summary',
-      rankings: [{ name: 'vortex:vortex-file', score: 1.0, totalRuntime: 5_000_000_000 }],
+      rankings: [
+        {
+          name: 'vortex:vortex-file',
+          score: 1.0,
+          totalRuntime: 5_000_000_000,
+          measured: 1,
+          total: 1,
+        },
+      ],
       explanation: 'lower is better',
     });
     expect(html).toContain('#1');
     expect(html).toContain('vortex:vortex-file');
     expect(html).toContain('1.00x');
     expect(html).toContain('5.00 s');
+  });
+
+  it('renders a vectorSearch card through the shared timing arm', () => {
+    const html = render({
+      type: 'vectorSearch',
+      title: 'Vector Search Performance',
+      rankings: [
+        { name: 'vortex-turboquant', score: 1.0, totalRuntime: 7_000, measured: 2, total: 2 },
+      ],
+      explanation: 'lower is better',
+    });
+    expect(html).toContain('<h3 class="scores-title">Vector Search Performance</h3>');
+    expect(html).toContain('vortex-turboquant');
+    expect(html).toContain('1.00x');
   });
 });
