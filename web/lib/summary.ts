@@ -36,34 +36,34 @@ import type { GroupKey } from './slug';
  * Freshness buckets for compression-time and compression-size summaries.
  *
  * Formats benchmarked with Vortex use its newest shared snapshot. Compression size also includes
- * Arrow as an uncompressed baseline. Independently benchmarked formats use their newest complete
+ * Arrow IPC as an on-disk format. Independently benchmarked formats use their newest complete
  * snapshot and Parquet data from the same commit.
  */
 const COMPRESSION_SHARED_SNAPSHOT_FORMATS = ['vortex-file-compressed', 'parquet'];
-const COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS = [...COMPRESSION_SHARED_SNAPSHOT_FORMATS, 'arrow'];
+const COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS = [
+  ...COMPRESSION_SHARED_SNAPSHOT_FORMATS,
+  'arrow-ipc',
+];
 const COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS = ['lance'];
 
 const COMPRESSION_SNAPSHOT_ANCHOR = 'vortex-file-compressed';
 const COMPRESSION_BASELINE = 'parquet';
-const COMPRESSION_UNCOMPRESSED_BASELINE = 'arrow';
 
-function compressionSummaryQueryParams(): [string[], string[], string, string, string] {
+function compressionSummaryQueryParams(): [string[], string[], string, string] {
   return [
     [...COMPRESSION_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS],
     COMPRESSION_SHARED_SNAPSHOT_FORMATS,
     COMPRESSION_SNAPSHOT_ANCHOR,
     COMPRESSION_BASELINE,
-    COMPRESSION_UNCOMPRESSED_BASELINE,
   ];
 }
 
-function compressionSizeSummaryQueryParams(): [string[], string[], string, string, string] {
+function compressionSizeSummaryQueryParams(): [string[], string[], string, string] {
   return [
     [...COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS],
     COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS,
     COMPRESSION_SNAPSHOT_ANCHOR,
     COMPRESSION_BASELINE,
-    COMPRESSION_UNCOMPRESSED_BASELINE,
   ];
 }
 
@@ -105,7 +105,7 @@ export interface CompressionSizeRanking {
   name: string;
   /** Geomean size ratio to Parquet for shared datasets. */
   ratio: number;
-  /** Geomean ratio of Arrow IPC size to the format size. */
+  /** Geomean ratio of Arrow memory size to the format size. */
   compressionRatio: number | null;
 }
 
@@ -282,8 +282,12 @@ async function collectCompressionSummary(): Promise<Summary | null> {
       totalNs: 0,
     };
     aggregate.ratios.push(row.parquetNs / row.valueNs);
-    if (row.arrowBytes !== null && row.arrowBytes > 0 && Number.isFinite(row.arrowBytes)) {
-      aggregate.totalBytes += row.arrowBytes;
+    if (
+      row.uncompressedBytes !== null &&
+      row.uncompressedBytes > 0 &&
+      Number.isFinite(row.uncompressedBytes)
+    ) {
+      aggregate.totalBytes += row.uncompressedBytes;
       aggregate.totalNs += row.valueNs;
     }
     grouped.set(key, aggregate);
@@ -328,7 +332,7 @@ async function collectCompressionSummary(): Promise<Summary | null> {
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot.
  * Every sample uses Parquet timing from the same commit. Aggregate throughput uses the newest
- * available Arrow size for each dataset and does not require the Arrow commit to match.
+ * available decoded Arrow memory size for each dataset. The size commit does not need to match.
  */
 async function compressionSamples(): Promise<
   Array<{
@@ -336,7 +340,7 @@ async function compressionSamples(): Promise<
     op: string;
     valueNs: number;
     parquetNs: number;
-    arrowBytes: number | null;
+    uncompressedBytes: number | null;
   }>
 > {
   const text = `
@@ -385,14 +389,14 @@ async function compressionSamples(): Promise<
         JOIN latest_snapshots latest
          ON latest.anchor_format = policy.anchor_format
          AND latest.commit_sha = pairs.commit_sha
-    ), latest_arrow_sizes AS (
+    ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             s.value_bytes::float8 AS arrow_bytes
+             s.uncompressed_bytes::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
-       WHERE s.format = $5
-         AND s.value_bytes > 0
+       WHERE s.format = $4
+         AND s.uncompressed_bytes > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC
@@ -401,11 +405,11 @@ async function compressionSamples(): Promise<
            selected.op AS op,
            selected.value_ns AS "valueNs",
            selected.parquet_ns AS "parquetNs",
-           arrow.arrow_bytes AS "arrowBytes"
+           uncompressed.uncompressed_bytes AS "uncompressedBytes"
       FROM selected
-      LEFT JOIN latest_arrow_sizes arrow
-        ON arrow.dataset = selected.dataset
-       AND arrow.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
+      LEFT JOIN latest_uncompressed_sizes uncompressed
+        ON uncompressed.dataset = selected.dataset
+       AND uncompressed.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
      ORDER BY selected.op, selected.format, selected.dataset,
               selected.dataset_variant NULLS FIRST
   `;
@@ -415,7 +419,7 @@ async function compressionSamples(): Promise<
       op: string;
       valueNs: number;
       parquetNs: number;
-      arrowBytes: number | null;
+      uncompressedBytes: number | null;
     }>(text, compressionSummaryQueryParams())
   ).rows;
 }
@@ -426,8 +430,12 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
   for (const row of rows) {
     const ratios = grouped.get(row.format) ?? { sizeRatios: [], compressionRatios: [] };
     ratios.sizeRatios.push(row.valueBytes / row.parquetBytes);
-    if (row.arrowBytes !== null && row.arrowBytes > 0 && Number.isFinite(row.arrowBytes)) {
-      ratios.compressionRatios.push(row.arrowBytes / row.valueBytes);
+    if (
+      row.uncompressedBytes !== null &&
+      row.uncompressedBytes > 0 &&
+      Number.isFinite(row.uncompressedBytes)
+    ) {
+      ratios.compressionRatios.push(row.uncompressedBytes / row.valueBytes);
     }
     grouped.set(row.format, ratios);
   }
@@ -451,7 +459,7 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
     title: 'Compression Size Summary',
     rankings,
     explanation:
-      'Geomean size ratio to Parquet (lower is better) | Estimated Arrow compression ratio (higher is better)',
+      'Geomean size ratio to Parquet (lower is better) | Estimated ratio from decoded Arrow memory (higher is better)',
   };
 }
 
@@ -459,10 +467,15 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot
  * and compares it with Parquet from the same commit. Compression ratios use the newest available
- * Arrow size for each dataset and do not require the Arrow commit to match.
+ * decoded Arrow memory size for each dataset. The size commit does not need to match.
  */
 async function compressionSizeSamples(): Promise<
-  Array<{ format: string; valueBytes: number; parquetBytes: number; arrowBytes: number | null }>
+  Array<{
+    format: string;
+    valueBytes: number;
+    parquetBytes: number;
+    uncompressedBytes: number | null;
+  }>
 > {
   const text = `
     WITH pairs AS (
@@ -505,14 +518,14 @@ async function compressionSizeSamples(): Promise<
         JOIN latest_snapshots latest
          ON latest.anchor_format = policy.anchor_format
          AND latest.commit_sha = pairs.commit_sha
-    ), latest_arrow_sizes AS (
+    ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             s.value_bytes::float8 AS arrow_bytes
+             s.uncompressed_bytes::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
-       WHERE s.format = $5
-         AND s.value_bytes > 0
+       WHERE s.format = $4
+         AND s.uncompressed_bytes > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC
@@ -520,11 +533,11 @@ async function compressionSizeSamples(): Promise<
     SELECT selected.format AS format,
            selected.value_bytes AS "valueBytes",
            selected.parquet_bytes AS "parquetBytes",
-           arrow.arrow_bytes AS "arrowBytes"
+           uncompressed.uncompressed_bytes AS "uncompressedBytes"
       FROM selected
-      LEFT JOIN latest_arrow_sizes arrow
-        ON arrow.dataset = selected.dataset
-       AND arrow.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
+      LEFT JOIN latest_uncompressed_sizes uncompressed
+        ON uncompressed.dataset = selected.dataset
+       AND uncompressed.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
      ORDER BY selected.format, selected.dataset, selected.dataset_variant NULLS FIRST
   `;
   return (
@@ -532,7 +545,7 @@ async function compressionSizeSamples(): Promise<
       format: string;
       valueBytes: number;
       parquetBytes: number;
-      arrowBytes: number | null;
+      uncompressedBytes: number | null;
     }>(text, compressionSizeSummaryQueryParams())
   ).rows;
 }

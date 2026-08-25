@@ -7,7 +7,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 This document is the versioned contract between the benchmark **emitters** (which run in
 the `vortex-data/vortex` monorepo) and the **storage + read service** in this repository. It is
-anchored to `SCHEMA_VERSION` (currently **`1`**). The emitters are owned by the monorepo
+anchored to `SCHEMA_VERSION` (currently **`2`**). The emitters are owned by the monorepo
 and are unchanged by this repository; this repo owns the ingest *contract*, the schema, and the
 read service.
 
@@ -26,7 +26,7 @@ lockstep. Bumping it is a coordinated, multi-site change.
 
 | Anchor | File | Form |
 |---|---|---|
-| Source of truth | `web/lib/schema-version.ts` | `export const SCHEMA_VERSION = 1;` |
+| Source of truth | `web/lib/schema-version.ts` | `export const SCHEMA_VERSION = 2;` |
 
 The consistency check in `web/lib/schema-version.test.ts` asserts this file and the anchor
 quoted in this document agree automatically.
@@ -59,6 +59,9 @@ Each record's fields are defined by the producer structs in the monorepo's
 `vortex-bench/src/v3.rs` and match the column names of its fact table (see
 [`migrations/`](migrations/) for the DDL). `scripts/post-ingest.py` validates and maps them
 column-by-column; an unknown `kind` or a missing dimension field fails the ingest run.
+
+`compression_size` records include `uncompressed_bytes`, the Arrow memory size after the
+source Parquet file is decoded. The column is nullable so historical rows remain valid.
 
 > **`measurement_id` is never on the wire.** It is a deterministic hash over `commit_sha` + the
 > record's dimension tuple, computed by the ingest writer just before INSERT and used as the

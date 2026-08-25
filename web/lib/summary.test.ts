@@ -19,15 +19,20 @@ describe('compression summaries', () => {
   it('uses geometric mean size ratios', async () => {
     query.mockResolvedValueOnce({
       rows: [
-        { format: 'vortex-file-compressed', valueBytes: 1, parquetBytes: 4, arrowBytes: 16 },
+        {
+          format: 'vortex-file-compressed',
+          valueBytes: 1,
+          parquetBytes: 4,
+          uncompressedBytes: 16,
+        },
         {
           format: 'vortex-file-compressed',
           valueBytes: 900,
           parquetBytes: 100,
-          arrowBytes: 3_600,
+          uncompressedBytes: 3_600,
         },
-        { format: 'parquet', valueBytes: 4, parquetBytes: 4, arrowBytes: 16 },
-        { format: 'parquet', valueBytes: 100, parquetBytes: 100, arrowBytes: null },
+        { format: 'parquet', valueBytes: 4, parquetBytes: 4, uncompressedBytes: 16 },
+        { format: 'parquet', valueBytes: 100, parquetBytes: 100, uncompressedBytes: null },
       ],
     });
 
@@ -44,7 +49,7 @@ describe('compression summaries', () => {
     expect(byFormat.get('parquet')?.compressionRatio).toBeCloseTo(4, 6);
   });
 
-  it('uses available Arrow sizes for aggregate throughput', async () => {
+  it('uses available Arrow memory sizes for aggregate throughput', async () => {
     query.mockResolvedValueOnce({
       rows: [
         {
@@ -52,21 +57,21 @@ describe('compression summaries', () => {
           op: 'encode',
           valueNs: 100,
           parquetNs: 200,
-          arrowBytes: 1_000,
+          uncompressedBytes: 1_000,
         },
         {
           format: 'vortex-file-compressed',
           op: 'encode',
           valueNs: 300,
           parquetNs: 300,
-          arrowBytes: 2_000,
+          uncompressedBytes: 2_000,
         },
         {
           format: 'vortex-file-compressed',
           op: 'encode',
           valueNs: 500,
           parquetNs: 250,
-          arrowBytes: null,
+          uncompressedBytes: null,
         },
       ],
     });
@@ -93,14 +98,12 @@ describe('compression summaries', () => {
       ['vortex-file-compressed', 'parquet'],
       'vortex-file-compressed',
       'parquet',
-      'arrow',
     ];
     const sizeParams = [
-      ['vortex-file-compressed', 'parquet', 'arrow', 'lance'],
-      ['vortex-file-compressed', 'parquet', 'arrow'],
+      ['vortex-file-compressed', 'parquet', 'arrow-ipc', 'lance'],
+      ['vortex-file-compressed', 'parquet', 'arrow-ipc'],
       'vortex-file-compressed',
       'parquet',
-      'arrow',
     ];
     const calls = query.mock.calls as Array<[string, unknown[]]>;
     expect(calls[0][1]).toEqual(timingParams);
@@ -119,10 +122,10 @@ describe('compression summaries', () => {
       // another hard-coded format branch or a per-dataset history scan.
       expect(text).not.toContain("format = 'lance'");
     }
-    expect(calls[0][0]).toContain('latest_arrow_sizes');
-    expect(calls[0][0]).toContain('s.format = $5');
-    expect(calls[0][0]).toContain('LEFT JOIN latest_arrow_sizes');
-    expect(calls[1][0]).toContain('latest_arrow_sizes');
-    expect(calls[1][0]).toContain('LEFT JOIN latest_arrow_sizes');
+    expect(calls[0][0]).toContain('latest_uncompressed_sizes');
+    expect(calls[0][0]).toContain('s.uncompressed_bytes > 0');
+    expect(calls[0][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain('latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
   });
 });

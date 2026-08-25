@@ -31,7 +31,7 @@ describe('buildRowCounts', () => {
 });
 
 describe('assembleHealth', () => {
-  it('builds the snake_case HealthResponse with status ok and schema_version 1', () => {
+  it('builds the snake_case HealthResponse with status ok and schema_version 2', () => {
     const health: HealthResponse = assembleHealth({
       rowCounts: { commits: 3 },
       latestCommitTimestamp: '2024-01-15T10:30:45Z',
@@ -41,7 +41,7 @@ describe('assembleHealth', () => {
     expect(health).toEqual({
       status: 'ok',
       db_path: 'bench.example.rds.amazonaws.com',
-      schema_version: 1,
+      schema_version: 2,
       build_sha: 'abc123',
       latest_commit_timestamp: '2024-01-15T10:30:45Z',
       row_counts: { commits: 3 },
@@ -65,7 +65,7 @@ describe.skipIf(!dockerAvailable())('collectHealth (testcontainers Postgres)', (
   it('reports zero counts and a null timestamp against the empty schema', async () => {
     const health = await collectHealth();
     expect(health.status).toBe('ok');
-    expect(health.schema_version).toBe(1);
+    expect(health.schema_version).toBe(2);
     expect(health.db_path).toBe(container.getHost());
     expect(health.build_sha).toBe('unknown');
     expect(health.latest_commit_timestamp).toBeNull();

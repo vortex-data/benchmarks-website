@@ -66,6 +66,8 @@ lexicographic order, which equals numeric order under this convention.
   use the same indexes, and the files are frozen post-apply (see Authoring
   rules), so their prose is historical. The current consumer is documented in
   `benchmarks-website/web/lib/summary.ts` / `queries.ts`.
+- `008_compression_uncompressed_size.sql` — adds the nullable Arrow memory size
+  used for compression-ratio and logical-throughput estimates. Historical rows remain unchanged.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
 PR-1.4, `004` in PR-2.1, `005` in the Phase-4 operator-gate work (the v4

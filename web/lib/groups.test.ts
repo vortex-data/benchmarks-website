@@ -86,7 +86,7 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.title).toBe('Random Access Performance');
       expect(summary.rankings[0].name).toBe('vortex-file-compressed');
       expect(summary.rankings[1].name).toBe('parquet');
-      expect(summary.rankings[2].name).toBe('arrow');
+      expect(summary.rankings[2].name).toBe('arrow-ipc');
       expect(summary.rankings[0].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(2.0, 6);
       expect(summary.rankings[2].ratio).toBeCloseTo(3.0, 6);
@@ -124,7 +124,7 @@ describe.skipIf(!dockerAvailable())(
       expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(832_000 / 20_000, 6);
     });
 
-    it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow', async () => {
+    it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow IPC', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Compression Size')?.summary,
@@ -137,7 +137,7 @@ describe.skipIf(!dockerAvailable())(
         'vortex-file-compressed',
         'parquet',
         'lance',
-        'arrow',
+        'arrow-ipc',
       ]);
       expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
@@ -340,12 +340,14 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     vortexBytes: number,
     parquetBytes: number,
   ): Promise<void> {
+    const uncompressedBytes = parquetBytes * 4;
     await getPool().query(
       `INSERT INTO compression_sizes
-           (measurement_id, commit_sha, dataset, dataset_variant, format, value_bytes)
-         VALUES ($1, $2, 'tpch-lineitem', NULL, 'vortex-file-compressed', $4),
-                ($3, $2, 'tpch-lineitem', NULL, 'parquet',                $5)`,
-      [nextId(), sha, nextId(), vortexBytes, parquetBytes],
+           (measurement_id, commit_sha, dataset, dataset_variant, format,
+            value_bytes, uncompressed_bytes)
+         VALUES ($1, $2, 'tpch-lineitem', NULL, 'vortex-file-compressed', $4, $6),
+                ($3, $2, 'tpch-lineitem', NULL, 'parquet',                $5, $6)`,
+      [nextId(), sha, nextId(), vortexBytes, parquetBytes, uncompressedBytes],
     );
   }
 
