@@ -5,8 +5,16 @@
  * Per-group summary rollups.
  *
  * Each `collect*Summary` runs focused SQL queries and returns one [`Summary`]
- * variant. Query summaries use a v2 dataset allowlist. Compression summaries
- * compare the configured formats with Parquet.
+ * variant. Compression summaries compare the configured formats with Parquet.
+ *
+ * **Every group kind has a summary.** There is no allowlist gate: a benchmark
+ * suite that lands in one of the five fact tables gets a rollup card the moment
+ * its first rows are ingested. The timing-shaped families (query, random
+ * access, vector search) all rank through the one [`rankSeries`] model below,
+ * so a new suite in any of them needs no summary code at all. Adding a sixth
+ * fact table is the only case that needs a new arm here, and
+ * [`collectGroupSummary`]'s exhaustive switch makes omitting it a compile
+ * error rather than a silently missing card.
  *
  * Behaviour-preservation notes (substrate migration, DuckDB -> Postgres):
  *  - Nullable-dim equality (`dataset_variant` / `scale_factor`) in the
@@ -67,25 +75,32 @@ function compressionSizeSummaryQueryParams(): [string[], string[], string, strin
   ];
 }
 
-/** One random-access summary row. */
-export interface RandomAccessRanking {
-  /** Series name, normally the physical format. */
+/**
+ * One row of a timing-benchmark ranking (query, random access, vector search).
+ *
+ * `score` is the headline number: the geomean of this series' time ratio to
+ * the fastest series, taken over every bucket in the group (queries for a
+ * query suite, `dataset/pattern` charts for random access, thresholds for
+ * vector search). A single bucket's absolute time is deliberately NOT the
+ * headline -- a summary that quoted one arbitrary chart's numbers reads as a
+ * claim about the whole group and is wrong whenever the group's charts
+ * disagree.
+ */
+export interface SeriesRanking {
+  /** Series name: `engine:format` for queries, the format or flavor otherwise. */
   name: string;
-  /** Latest measured time in nanoseconds. */
-  time: number;
-  /** Ratio to the fastest series in the same chart. */
-  ratio: number;
+  /** Geomean ratio to the fastest series per bucket. Lower is better. */
+  score: number;
+  /** Sum of the latest times over the buckets this series was measured in. */
+  totalRuntime: number;
+  /** Buckets this series has a measurement for. */
+  measured: number;
+  /** Buckets in the group, i.e. the denominator `measured` is out of. */
+  total: number;
 }
 
-/** One query-benchmark summary row. */
-export interface QueryRanking {
-  /** Series name, normally `engine:format`. */
-  name: string;
-  /** Geomean ratio to the fastest observed value per query. */
-  score: number;
-  /** Sum of latest runtimes for the queries this series has. */
-  totalRuntime: number;
-}
+/** @deprecated Prefer [`SeriesRanking`]; kept as the historical spelling. */
+export type QueryRanking = SeriesRanking;
 
 /** One format and operation in the compression throughput summary. */
 export interface CompressionRanking {
@@ -117,7 +132,7 @@ export type Summary =
   | {
       type: 'randomAccess';
       title: string;
-      rankings: RandomAccessRanking[];
+      rankings: SeriesRanking[];
       explanation: string;
     }
   | {
@@ -135,48 +150,33 @@ export type Summary =
   | {
       type: 'queryBenchmark';
       title: string;
-      rankings: QueryRanking[];
+      rankings: SeriesRanking[];
+      explanation: string;
+    }
+  | {
+      type: 'vectorSearch';
+      title: string;
+      rankings: SeriesRanking[];
       explanation: string;
     };
 
 /**
- * Compute the summary for one group, if its kind has one.
- * `charts` is only consulted for the random-access path (which scans its chart
- * links for the latest populated dataset); the other paths query their fact
- * table directly. The structural `{ name }[]` accepts a `ChartLink[]`.
+ * Compute the summary for one group. Every group kind has one, so this returns
+ * `null` only when the group has no usable rows yet (a brand-new suite between
+ * its first ingest and its first complete measurement).
  */
-export function collectGroupSummary(
-  key: GroupKey,
-  charts: readonly { readonly name: string }[],
-): Promise<Summary | null> {
+export function collectGroupSummary(key: GroupKey): Promise<Summary | null> {
   switch (key.k) {
     case 'QueryGroup':
-      if (queryGroupHasV2Summary(key.dataset)) {
-        return collectQuerySummary(key.dataset, key.dataset_variant, key.scale_factor, key.storage);
-      }
-      return Promise.resolve(null);
+      return collectQuerySummary(key.dataset, key.dataset_variant, key.scale_factor, key.storage);
     case 'CompressionTimeGroup':
       return collectCompressionSummary();
     case 'CompressionSizeGroup':
       return collectCompressionSizeSummary();
     case 'RandomAccessGroup':
-      return collectRandomAccessSummary(charts);
+      return collectRandomAccessSummary();
     case 'VectorSearchGroup':
-      return Promise.resolve(null);
-  }
-}
-
-/** The v2 dataset allowlist for which a query group carries a summary. */
-function queryGroupHasV2Summary(dataset: string): boolean {
-  switch (dataset) {
-    case 'clickbench':
-    case 'statpopgen':
-    case 'polarsignals':
-    case 'tpch':
-    case 'tpcds':
-      return true;
-    default:
-      return false;
+      return collectVectorSearchSummary(key.dataset, key.layout);
   }
 }
 
@@ -197,62 +197,225 @@ function geoMean(values: readonly number[]): number | null {
   return n > 0 ? Math.exp(sumLn / n) : null;
 }
 
-async function collectRandomAccessSummary(
-  charts: readonly { readonly name: string }[],
-): Promise<Summary | null> {
-  // Scan the group's chart links in order; the first chart with valid rows at
-  // its latest commit wins (matching the Rust early-return loop).
+/**
+ * The v2 penalty floor for query suites, in nanoseconds. A series missing a
+ * query is imputed `max(itsWorstQuery, 300us) * 2`; the floor stops a suite of
+ * uniformly fast queries from making a missing result nearly free.
+ */
+const QUERY_PENALTY_FLOOR_NS = 300_000;
+
+/** One measured point feeding [`rankSeries`]. */
+interface SeriesSample<K> {
+  /** Series being ranked (`engine:format`, a format, or a flavor). */
+  series: string;
+  /** The thing being measured across series: a query, a chart, a threshold. */
+  bucket: K;
+  /** Latest value for `(series, bucket)`, in nanoseconds. */
+  value: number;
+}
+
+/**
+ * Rank timing series by the geomean of their ratio to the fastest series in
+ * each bucket, with v2's missing-series penalty.
+ *
+ * This is the one ranking model behind the query, random-access, and
+ * vector-search summaries. Two properties matter for a summary card:
+ *
+ *  - **Every bucket counts.** Ranking on one bucket's absolute times (which is
+ *    what the random-access summary used to do -- it took whichever chart
+ *    sorted first and quoted its raw numbers) states a group-wide conclusion
+ *    from a single chart. `lance` leading `feature-vectors/correlated` says
+ *    nothing about `nested-structs/uniform`.
+ *  - **A missing bucket is not a free win.** A series measured on only the
+ *    buckets it happens to win would otherwise outrank one measured
+ *    everywhere. Where a series has no value the bucket contributes
+ *    `max(itsWorstBucket, penaltyFloorNs) * 2` instead. `measured`/`total` on
+ *    each row reports how much of the score was imputed.
+ *
+ * The `(10 + value) / (10 + best)` ratio (rather than `value / best`) is v2's,
+ * damping sub-10ns noise; it is preserved because the shipped query scores are
+ * pinned to it. Random-access and vector-search summaries also set a 2x floor
+ * for a missing bucket. The floor prevents a penalty derived from a fast bucket
+ * from beating a real measurement on a slower bucket. Query summaries keep a
+ * zero floor to preserve the shipped v2 scores.
+ */
+function rankSeries<K>(
+  samples: readonly SeriesSample<K>[],
+  compareBuckets: (a: K, b: K) => number,
+  penaltyFloorNs: number,
+  missingRatioFloor: number,
+): SeriesRanking[] {
+  const buckets = new Map<string, K>();
+  const valuesBySeries = new Map<string, Map<string, number>>();
+  for (const sample of samples) {
+    if (!(sample.value > 0) || !Number.isFinite(sample.value)) {
+      continue;
+    }
+    const bucketKey = String(sample.bucket);
+    buckets.set(bucketKey, sample.bucket);
+    let series = valuesBySeries.get(sample.series);
+    if (series === undefined) {
+      series = new Map<string, number>();
+      valuesBySeries.set(sample.series, series);
+    }
+    series.set(bucketKey, sample.value);
+  }
+  if (valuesBySeries.size === 0) {
+    return [];
+  }
+
+  // Sorted buckets match the Rust `BTreeSet` iteration order for query suites.
+  const sortedBuckets = [...buckets.entries()].sort((a, b) => compareBuckets(a[1], b[1]));
+  const bestByBucket = new Map<string, number>();
+  for (const [bucketKey] of sortedBuckets) {
+    let best = Infinity;
+    for (const series of valuesBySeries.values()) {
+      const value = series.get(bucketKey);
+      if (value !== undefined && value < best) {
+        best = value;
+      }
+    }
+    if (Number.isFinite(best)) {
+      bestByBucket.set(bucketKey, best);
+    }
+  }
+
+  const rankings: SeriesRanking[] = [];
+  // Sorted series keys match the Rust `BTreeMap<String, _>` iteration order.
+  for (const name of [...valuesBySeries.keys()].sort(compareCodeUnits)) {
+    const bucketValues = valuesBySeries.get(name);
+    if (bucketValues === undefined) {
+      continue;
+    }
+    let totalRuntime = 0;
+    let maxRuntime = -Infinity;
+    for (const [bucketKey] of sortedBuckets) {
+      const value = bucketValues.get(bucketKey);
+      if (value === undefined) {
+        continue;
+      }
+      totalRuntime += value;
+      if (value > maxRuntime) {
+        maxRuntime = value;
+      }
+    }
+    if (!Number.isFinite(maxRuntime)) {
+      continue;
+    }
+    const penalty = Math.max(maxRuntime, penaltyFloorNs) * 2;
+    const ratios: number[] = [];
+    for (const [bucketKey] of sortedBuckets) {
+      const base = bestByBucket.get(bucketKey);
+      if (base === undefined) {
+        continue;
+      }
+      const measuredValue = bucketValues.get(bucketKey);
+      const ratio = (10 + (measuredValue ?? penalty)) / (10 + base);
+      ratios.push(measuredValue === undefined ? Math.max(ratio, missingRatioFloor) : ratio);
+    }
+    const score = geoMean(ratios);
+    if (score === null) {
+      continue;
+    }
+    rankings.push({
+      name,
+      score,
+      totalRuntime,
+      measured: bucketValues.size,
+      total: sortedBuckets.length,
+    });
+  }
+  rankings.sort((a, b) =>
+    a.score < b.score ? -1 : a.score > b.score ? 1 : compareCodeUnits(a.name, b.name),
+  );
+  return rankings;
+}
+
+/**
+ * The random-access rollup, over every `(dataset, pattern)` chart in the group.
+ *
+ * Two things this deliberately does NOT do, both of which the previous
+ * implementation did:
+ *
+ *  - It does not summarize one chart. The old query walked the group's chart
+ *    links and returned the first that had rows -- in practice always the
+ *    alphabetically first `dataset/pattern` -- then published its raw times
+ *    under the group-wide title "Random Access Performance". The producer
+ *    (`benchmarks/random-access-bench`) emits `dataset` as `{dataset}/{pattern}`
+ *    plus the legacy bare `taxi`, so that was one of nine charts speaking for
+ *    all nine.
+ *  - It does not pin every format to one global latest commit. `format` is
+ *    ranked from its own newest run per chart, the same freshness policy the
+ *    compression summaries apply to intermittently benchmarked formats such as
+ *    `lance`: a format that skipped the newest commit is compared as of when it
+ *    last ran instead of vanishing from the card.
+ *
+ * `random_access_times` holds one row per `(commit_sha, dataset, format)` and
+ * is the smallest fact table, so the per-series `DISTINCT ON` descent is cheap.
+ */
+async function collectRandomAccessSummary(): Promise<Summary | null> {
   const text = `
-    SELECT r.format AS name, r.value_ns::float8 AS value
+    SELECT DISTINCT ON (r.dataset, r.format)
+           r.dataset AS bucket,
+           r.format AS series,
+           r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
-     WHERE r.dataset = $1
-       AND r.value_ns > 0
-       AND c.timestamp = (
-            SELECT MAX(c2.timestamp)
-              FROM random_access_times r2
-              JOIN commits c2 USING (commit_sha)
-             WHERE r2.dataset = $2
-               AND r2.value_ns > 0
-       )
-     ORDER BY r.value_ns, r.format
+     WHERE r.value_ns > 0
+     ORDER BY r.dataset, r.format, c.timestamp DESC, r.commit_sha DESC
   `;
-  for (const chart of charts) {
-    const rows = (
-      await getPool().query<{ name: string; value: number }>(text, [chart.name, chart.name])
-    ).rows;
-    const rankings: RandomAccessRanking[] = rows.map((row) => ({
-      name: row.name,
-      time: row.value,
-      ratio: 0,
-    }));
-    if (rankings.length === 0) {
-      continue;
-    }
-    // Streaming min (loop, not a `Math.min(...)` spread) for consistency with
-    // `collectCompressionSizeSummary` and to avoid a large-array call-argument
-    // cliff; the Rust source uses `reduce(f64::min)` here.
-    let minTime = Infinity;
-    for (const r of rankings) {
-      minTime = Math.min(minTime, r.time);
-    }
-    if (minTime <= 0 || !Number.isFinite(minTime)) {
-      continue;
-    }
-    for (const r of rankings) {
-      r.ratio = r.time / minTime;
-    }
-    rankings.sort((a, b) =>
-      a.time < b.time ? -1 : a.time > b.time ? 1 : compareCodeUnits(a.name, b.name),
-    );
-    return {
-      type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings,
-      explanation: 'Random access time | Ratio to fastest (lower is better)',
-    };
+  const rows = (await getPool().query<{ bucket: string; series: string; value: number }>(text))
+    .rows;
+  const rankings = rankSeries(rows, compareCodeUnits, 0, 2);
+  if (rankings.length === 0) {
+    return null;
   }
-  return null;
+  return {
+    type: 'randomAccess',
+    title: 'Random Access Performance',
+    rankings,
+    explanation: 'Geomean of take time ratio to fastest across every chart (lower is better)',
+  };
+}
+
+/**
+ * The vector-search rollup for one `(dataset, layout)` group, ranking flavors
+ * across the group's thresholds. Vector-search groups previously carried no
+ * summary at all; they rank through the same model as every other timing
+ * family, with the threshold as the bucket.
+ */
+async function collectVectorSearchSummary(
+  dataset: string,
+  layout: string,
+): Promise<Summary | null> {
+  const text = `
+    SELECT DISTINCT ON (v.threshold, v.flavor)
+           v.threshold::float8 AS bucket,
+           v.flavor AS series,
+           v.value_ns::float8 AS value
+      FROM vector_search_runs v
+      JOIN commits c USING (commit_sha)
+     WHERE v.dataset = $1
+       AND v.layout = $2
+       AND v.value_ns > 0
+     ORDER BY v.threshold, v.flavor, c.timestamp DESC, v.commit_sha DESC
+  `;
+  const rows = (
+    await getPool().query<{ bucket: number; series: string; value: number }>(text, [
+      dataset,
+      layout,
+    ])
+  ).rows;
+  const rankings = rankSeries(rows, (a, b) => a - b, 0, 2);
+  if (rankings.length === 0) {
+    return null;
+  }
+  return {
+    type: 'vectorSearch',
+    title: 'Vector Search Performance',
+    rankings,
+    explanation: 'Geomean of scan time ratio to fastest across thresholds (lower is better)',
+  };
 }
 
 async function collectCompressionSummary(): Promise<Summary | null> {
@@ -556,9 +719,9 @@ async function collectQuerySummary(
   scaleFactor: string | null,
   storage: string,
 ): Promise<Summary | null> {
-  // Latest value per (query_idx, engine, format), then v2's missing-series
-  // penalty model: each series scores the geomean of `(10 + value) / (10 +
-  // best)` over every query, imputing a penalty where the series has no value.
+  // Latest value per (query_idx, engine, format), then the shared
+  // [`rankSeries`] model with the query bucket = `query_idx` and v2's
+  // `QUERY_PENALTY_FLOOR_NS` floor.
   //
   // "Latest per series" is a recursive-CTE skip scan (loose index scan) over the
   // covering index `idx_query_measurements_summary` (dataset, dataset_variant,
@@ -722,77 +885,12 @@ async function collectQuerySummary(
     await getPool().query<{ query_idx: number; series: string; value_ns: number }>(text, params)
   ).rows;
 
-  const queries = new Set<number>();
-  const valuesBySeries = new Map<string, Map<number, number>>();
-  for (const row of rows) {
-    queries.add(row.query_idx);
-    let series = valuesBySeries.get(row.series);
-    if (series === undefined) {
-      series = new Map<number, number>();
-      valuesBySeries.set(row.series, series);
-    }
-    series.set(row.query_idx, row.value_ns);
-  }
-  if (valuesBySeries.size === 0) {
-    return null;
-  }
-
-  // Sorted query indices match the Rust `BTreeSet<i32>` iteration order.
-  const sortedQueries = [...queries].sort((a, b) => a - b);
-  const bestByQuery = new Map<number, number>();
-  for (const queryIdx of sortedQueries) {
-    let best = Infinity;
-    for (const series of valuesBySeries.values()) {
-      const value = series.get(queryIdx);
-      if (value !== undefined && value < best) {
-        best = value;
-      }
-    }
-    if (Number.isFinite(best)) {
-      bestByQuery.set(queryIdx, best);
-    }
-  }
-
-  const rankings: QueryRanking[] = [];
-  // Sorted series keys match the Rust `BTreeMap<String, _>` iteration order.
-  for (const name of [...valuesBySeries.keys()].sort(compareCodeUnits)) {
-    const queryValues = valuesBySeries.get(name);
-    if (queryValues === undefined) {
-      continue;
-    }
-    let totalRuntime = 0;
-    for (const queryIdx of [...queryValues.keys()].sort((a, b) => a - b)) {
-      totalRuntime += queryValues.get(queryIdx) ?? 0;
-    }
-    let maxRuntime = -Infinity;
-    for (const value of queryValues.values()) {
-      if (value > maxRuntime) {
-        maxRuntime = value;
-      }
-    }
-    if (!Number.isFinite(maxRuntime)) {
-      continue;
-    }
-    const penalty = Math.max(maxRuntime, 300_000) * 2;
-    const ratios: number[] = [];
-    for (const queryIdx of sortedQueries) {
-      const base = bestByQuery.get(queryIdx);
-      if (base === undefined) {
-        continue;
-      }
-      const value = queryValues.get(queryIdx) ?? penalty;
-      ratios.push((10 + value) / (10 + base));
-    }
-    const score = geoMean(ratios);
-    if (score === null) {
-      continue;
-    }
-    rankings.push({ name, score, totalRuntime });
-  }
-  rankings.sort((a, b) =>
-    a.score < b.score ? -1 : a.score > b.score ? 1 : compareCodeUnits(a.name, b.name),
+  const rankings = rankSeries(
+    rows.map((row) => ({ series: row.series, bucket: row.query_idx, value: row.value_ns })),
+    (a, b) => a - b,
+    QUERY_PENALTY_FLOOR_NS,
+    0,
   );
-
   if (rankings.length === 0) {
     return null;
   }

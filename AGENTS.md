@@ -49,6 +49,20 @@ rules below are the parts that were worth keeping.
   enforce a path convention, so update the explicit mapping when a suite is added or its doc moves.
   Groups without a matching explainer render no docs link. Do not guess a path or link to an
   unrelated general guide.
+- **Every group kind has a summary, by default.** [`web/lib/summary.ts`](web/lib/summary.ts)
+  has no allowlist gate: a suite that lands in one of the five fact tables gets a rollup card
+  from its first ingest. The three timing families (query, random access, vector search) rank
+  through one `rankSeries` model, so a new suite in any of them needs no summary code at all.
+  `collectGroupSummary`'s exhaustive switch makes a missing arm for a sixth fact table a compile
+  error rather than a silently blank card. Do NOT reintroduce a per-dataset allowlist; the v2-era
+  one is what left `spatialbench`, `fineweb`, `gharchive`, `appian`, `public-bi`,
+  `clickbench-sorted`, and every vector-search group with no card.
+- **A summary ranks the whole group, never one chart.** Random access is the cautionary case:
+  the producer emits `dataset` as `{dataset}/{pattern}`, so the group holds ~nine charts, and the
+  old summary published the alphabetically first chart's raw times under the group-wide title
+  "Random Access Performance" — reporting `lance` at 352us when it is over 1ms on most of the
+  other charts. Rank across every bucket in the group, impute the missing-series penalty where a
+  series skipped one, and report `measured`/`total` so a partially covered series is legible.
 - **Don't write a server-side classifier for live ingest.** The emitter produces structured
   records directly. Classifying loose name strings at read time was the v2-era weakness every
   later generation existed to escape; it belongs nowhere in the live pipeline.
