@@ -43,12 +43,17 @@ describe('SummaryCard', () => {
     expect(render({ type: 'randomAccess', title: 't', rankings: [], explanation: 'e' })).toBe('');
   });
 
-  it('renders compression rankings with ratios', () => {
+  it('renders compression rankings with ratios and aggregate throughput', () => {
     const html = render({
       type: 'compression',
       title: 'Compression Throughput',
       rankings: [
-        { name: 'vortex-file-compressed', operation: 'encode', ratio: 2.5 },
+        {
+          name: 'vortex-file-compressed',
+          operation: 'encode',
+          ratio: 2.5,
+          throughputGbS: 6.25,
+        },
         { name: 'parquet', operation: 'encode', ratio: 1 },
         { name: 'lance', operation: 'encode', ratio: 0.8 },
         { name: 'vortex-file-compressed', operation: 'decode', ratio: 1.8 },
@@ -65,7 +70,7 @@ describe('SummaryCard', () => {
     expect(html).toContain('2.50x');
     expect(html).toContain('>lance</span>');
     expect(html).toContain('1.80x');
-    expect(html).not.toContain('GB/s');
+    expect(html).toContain('6.25 GB/s');
     expect(html.match(/#1/g)).toHaveLength(2);
   });
 
@@ -78,9 +83,9 @@ describe('SummaryCard', () => {
       type: 'compressionSize',
       title: 'Compression Size Summary',
       rankings: [
-        { name: 'vortex-file-compressed', ratio: 0.45 },
-        { name: 'parquet', ratio: 1 },
-        { name: 'lance', ratio: 1.2 },
+        { name: 'vortex-file-compressed', ratio: 0.45, compressionRatio: 8.25 },
+        { name: 'parquet', ratio: 1, compressionRatio: 4.5 },
+        { name: 'lance', ratio: 1.2, compressionRatio: null },
       ],
       explanation: 'lower is better',
     });
@@ -89,6 +94,8 @@ describe('SummaryCard', () => {
     expect(html).toContain('1.00x');
     expect(html).toContain('lance');
     expect(html).toContain('1.20x');
+    expect(html).toContain('class="score-runtime">8.25</span>');
+    expect(html).toContain('class="score-runtime">4.50</span>');
     expect(html).not.toContain('GB');
   });
 

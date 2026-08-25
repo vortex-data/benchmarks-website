@@ -81,6 +81,11 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                           </span>
                           <span className="score-metrics">
                             <span className="score-value">{item.ratio.toFixed(2)}x</span>
+                            {item.throughputGbS !== undefined && (
+                              <span className="score-runtime">
+                                {item.throughputGbS.toFixed(2)} GB/s
+                              </span>
+                            )}
                           </span>
                         </div>
                       );
@@ -110,6 +115,9 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                 </span>
                 <span className="score-metrics">
                   <span className="score-value">{item.ratio.toFixed(2)}x</span>
+                  {item.compressionRatio === null ? null : (
+                    <span className="score-runtime">{item.compressionRatio.toFixed(2)}</span>
+                  )}
                 </span>
               </div>
             ))}

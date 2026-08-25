@@ -86,8 +86,10 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.title).toBe('Random Access Performance');
       expect(summary.rankings[0].name).toBe('vortex-file-compressed');
       expect(summary.rankings[1].name).toBe('parquet');
+      expect(summary.rankings[2].name).toBe('arrow');
       expect(summary.rankings[0].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(2.0, 6);
+      expect(summary.rankings[2].ratio).toBeCloseTo(3.0, 6);
     });
 
     it('computes compression rankings with Parquet and Lance baselines', async () => {
@@ -108,12 +110,21 @@ describe.skipIf(!dockerAvailable())(
       expect(byKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
       expect(byKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
       expect(byKey.get('decode:lance')?.ratio).toBeCloseTo(0.5, 6);
-      const json = JSON.stringify(summary);
-      expect(json).not.toContain('"throughputGbS"');
-      expect(json).toContain('"rankings"');
+      expect(byKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
+        832_000 / 109_000,
+        6,
+      );
+      expect(byKey.get('encode:parquet')?.throughputGbS).toBeCloseTo(832_000 / 218_000, 6);
+      expect(byKey.get('encode:lance')?.throughputGbS).toBeCloseTo(832_000 / 36_000, 6);
+      expect(byKey.get('decode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
+        832_000 / 105_000,
+        6,
+      );
+      expect(byKey.get('decode:parquet')?.throughputGbS).toBeCloseTo(832_000 / 210_000, 6);
+      expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(832_000 / 20_000, 6);
     });
 
-    it('computes compression-size rankings for Vortex, Parquet, and Lance', async () => {
+    it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Compression Size')?.summary,
@@ -126,10 +137,16 @@ describe.skipIf(!dockerAvailable())(
         'vortex-file-compressed',
         'parquet',
         'lance',
+        'arrow',
       ]);
       expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
+      expect(summary.rankings[3].ratio).toBeCloseTo(4.0, 6);
+      expect(summary.rankings[0].compressionRatio).toBeCloseTo(8.0, 6);
+      expect(summary.rankings[1].compressionRatio).toBeCloseTo(4.0, 6);
+      expect(summary.rankings[2].compressionRatio).toBeCloseTo(52.0, 6);
+      expect(summary.rankings[3].compressionRatio).toBeCloseTo(1.0, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {

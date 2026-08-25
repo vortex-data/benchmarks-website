@@ -162,6 +162,7 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
     const compSizes: Array<readonly [string, number]> = [
       ['vortex-file-compressed', 4_000 + bias],
       ['parquet', 8_000 + 2 * bias],
+      ['arrow', 32_000 + 8 * bias],
     ];
     if (i === 0) {
       compSizes.push(['lance', 16_000]);
@@ -177,6 +178,7 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
     const randomAccess: ReadonlyArray<readonly [string, number]> = [
       ['vortex-file-compressed', 500 + bias],
       ['parquet', 1_000 + 2 * bias],
+      ['arrow', 1_500 + 3 * bias],
     ];
     for (const [format, valueNs] of randomAccess) {
       await pool.query(
