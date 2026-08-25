@@ -642,10 +642,11 @@ export interface ChartLink {
 
 /**
  * One group: a display name, a permalink slug, the chart links inside it, and
- * an optional v2-compatible rollup [`Summary`] plus editorial description.
- * `summary` and `description` are left `undefined` (so `JSON.stringify` drops
- * them) when absent, the TS analogue of serde `skip_serializing_if =
- * "Option::is_none"`.
+ * a rollup [`Summary`] plus an optional editorial description. Every group
+ * kind has a summary (see `summary.ts`), so `summary` is absent only for a
+ * group whose fact rows are not yet usable. `summary` and `description` are
+ * left `undefined` (so `JSON.stringify` drops them) when absent, the TS
+ * analogue of serde `skip_serializing_if = "Option::is_none"`.
  */
 export interface Group {
   name: string;
@@ -1135,7 +1136,7 @@ export async function collectGroups(): Promise<Group[]> {
   // ~64 groups (PR-5.1.5 fix e).
   await mapWithConcurrency(groups, SUMMARY_CONCURRENCY, async (group) => {
     const key = groupKeyFromSlug(group.slug);
-    const summary = await collectGroupSummary(key, group.charts);
+    const summary = await collectGroupSummary(key);
     if (summary !== null) {
       group.summary = summary;
     }

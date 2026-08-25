@@ -74,7 +74,7 @@ describe.skipIf(!dockerAvailable())(
       ]);
     });
 
-    it('computes the random-access summary (ratio to fastest)', async () => {
+    it('computes the random-access summary (geomean ratio to fastest)', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Random Access')?.summary,
@@ -86,8 +86,33 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.title).toBe('Random Access Performance');
       expect(summary.rankings[0].name).toBe('vortex-file-compressed');
       expect(summary.rankings[1].name).toBe('parquet');
-      expect(summary.rankings[0].ratio).toBeCloseTo(1.0, 6);
-      expect(summary.rankings[1].ratio).toBeCloseTo(2.0, 6);
+      // The fixture's newest commit has vortex=100_500 and parquet=201_000 on
+      // the one `taxi` chart, so the scores are the damped
+      // `(10 + value) / (10 + best)` ratios and both series cover every chart.
+      expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
+      expect(summary.rankings[1].score).toBeCloseTo(1.9999005, 6);
+      expect(summary.rankings[0].totalRuntime).toBeCloseTo(100_500, 6);
+      expect(summary.rankings[1].totalRuntime).toBeCloseTo(201_000, 6);
+      expect(summary.rankings.map((r) => [r.measured, r.total])).toEqual([
+        [1, 1],
+        [1, 1],
+      ]);
+    });
+
+    it('summarizes the vector-search group instead of leaving it blank', async () => {
+      const groups = await collectGroups();
+      const summary = expectDefined(
+        groups.find((g) => g.name === 'cohere-large-10m / partitioned')?.summary,
+        'vector search summary',
+      );
+      if (summary.type !== 'vectorSearch') {
+        throw new Error(`expected vectorSearch summary, got ${summary.type}`);
+      }
+      expect(summary.title).toBe('Vector Search Performance');
+      expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-turboquant']);
+      expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
+      // The newest commit's value for the group's single threshold.
+      expect(summary.rankings[0].totalRuntime).toBeCloseTo(107_000, 6);
     });
 
     it('computes compression rankings with Parquet and Lance baselines', async () => {
@@ -170,8 +195,9 @@ describe.skipIf(!dockerAvailable())(
         groups.find((g) => g.name === 'cohere-large-10m / partitioned'),
         'vector-search group',
       );
-      // Vector-search groups carry neither a summary nor a description.
-      expect(vector.summary).toBeUndefined();
+      // Vector-search groups now carry a summary (every group kind does), but
+      // still have no editorial description.
+      expect(vector.summary?.type).toBe('vectorSearch');
       expect(vector.description).toBeUndefined();
     });
 
@@ -343,7 +369,8 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
 
   beforeEach(async () => {
     await getPool().query(
-      'TRUNCATE compression_times, compression_sizes, query_measurements, commits',
+      `TRUNCATE compression_times, compression_sizes, query_measurements,
+                random_access_times, vector_search_runs, commits`,
     );
   });
 
@@ -366,6 +393,156 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     );
   }
 
+  // One random-access measurement for a `{dataset}/{pattern}` chart. The
+  // producer (`benchmarks/random-access-bench`) writes `dataset` in exactly
+  // this shape, plus a legacy bare `taxi`.
+  async function insertRandomAccess(
+    sha: string,
+    dataset: string,
+    format: string,
+    valueNs: number,
+  ): Promise<void> {
+    await getPool().query(
+      `INSERT INTO random_access_times
+           (measurement_id, commit_sha, dataset, format, value_ns, all_runtimes_ns)
+         VALUES ($1, $2, $3, $4, $5, '{1}'::bigint[])`,
+      [nextId(), sha, dataset, format, valueNs],
+    );
+  }
+
+  it('ranks random access over every chart, not the alphabetically first one', async () => {
+    // The bug this pins: the old summary walked the group's chart links and
+    // published the first populated chart's raw times under the group-wide
+    // title, so `lance` winning `feature-vectors/correlated` was reported as
+    // `lance` leading random access outright -- even though it is 3x slower on
+    // the two other charts. Ranking over all three charts reverses that.
+    const sha = 'a'.repeat(40);
+    await insertCommit(sha, '2026-04-23T12:00:00Z');
+    await insertRandomAccess(sha, 'feature-vectors/correlated', 'lance', 350_000);
+    await insertRandomAccess(
+      sha,
+      'feature-vectors/correlated',
+      'vortex-file-compressed',
+      1_100_000,
+    );
+    await insertRandomAccess(sha, 'nested-structs/uniform', 'lance', 3_000_000);
+    await insertRandomAccess(sha, 'nested-structs/uniform', 'vortex-file-compressed', 1_000_000);
+    await insertRandomAccess(sha, 'taxi', 'lance', 3_000_000);
+    await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 1_000_000);
+
+    const summary = expectDefined(
+      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      'random-access summary',
+    );
+    if (summary.type !== 'randomAccess') {
+      throw new Error(`expected randomAccess summary, got ${summary.type}`);
+    }
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
+    // vortex: cbrt(1100000/350000 * 1 * 1); lance: cbrt(1 * 3 * 3).
+    expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 5);
+    expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 5);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+  });
+
+  it('keeps an intermittently benchmarked format at its own latest run', async () => {
+    // `lance` runs less often than Vortex. Pinning every format to one global
+    // latest commit dropped it from the card entirely on any commit it skipped;
+    // each format is instead read at its own newest run per chart, the same
+    // freshness policy the compression summaries use.
+    const older = 'b'.repeat(40);
+    const newer = 'c'.repeat(40);
+    await insertCommit(older, '2026-04-22T12:00:00Z');
+    await insertCommit(newer, '2026-04-23T12:00:00Z');
+    await insertRandomAccess(older, 'taxi', 'lance', 4_000_000);
+    await insertRandomAccess(older, 'taxi', 'vortex-file-compressed', 2_000_000);
+    // The newer commit has no `lance` row.
+    await insertRandomAccess(newer, 'taxi', 'vortex-file-compressed', 1_000_000);
+
+    const summary = expectDefined(
+      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      'random-access summary',
+    );
+    if (summary.type !== 'randomAccess') {
+      throw new Error(`expected randomAccess summary, got ${summary.type}`);
+    }
+    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    // Vortex is read at the newer commit, lance at its own older one.
+    expect(byName.get('vortex-file-compressed')?.totalRuntime).toBeCloseTo(1_000_000, 6);
+    expect(byName.get('lance')?.totalRuntime).toBeCloseTo(4_000_000, 6);
+  });
+
+  it('penalizes a format that skipped a chart instead of scoring it on a subset', async () => {
+    // A format measured only where it wins would otherwise take #1 on a
+    // one-chart geomean. `lance` is fastest on the chart it ran and absent from
+    // the other; the missing chart is imputed `max(itsWorstChart, 0) * 2`, which
+    // is what drops it behind the format measured everywhere.
+    const sha = 'd'.repeat(40);
+    await insertCommit(sha, '2026-04-23T12:00:00Z');
+    await insertRandomAccess(sha, 'feature-vectors/correlated', 'lance', 100_000);
+    await insertRandomAccess(sha, 'feature-vectors/correlated', 'vortex-file-compressed', 200_000);
+    await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 50_000);
+
+    const summary = expectDefined(
+      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      'random-access summary',
+    );
+    if (summary.type !== 'randomAccess') {
+      throw new Error(`expected randomAccess summary, got ${summary.type}`);
+    }
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
+    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    // lance: sqrt(1 * (10 + 200_000) / (10 + 50_000)) with penalty
+    // max(100_000, 0) * 2 = 200_000 on the chart it skipped.
+    expect(byName.get('lance')?.score).toBeCloseTo(Math.sqrt(200_010 / 50_010), 6);
+    expect(byName.get('lance')?.measured).toBe(1);
+    expect(byName.get('lance')?.total).toBe(2);
+    // `totalRuntime` sums only the charts it actually ran; the penalty is a
+    // scoring device, not a reported measurement.
+    expect(byName.get('lance')?.totalRuntime).toBeCloseTo(100_000, 6);
+    expect(byName.get('vortex-file-compressed')?.score).toBeCloseTo(
+      Math.sqrt(200_010 / 100_010),
+      6,
+    );
+    expect(byName.get('vortex-file-compressed')?.measured).toBe(2);
+  });
+
+  it('summarizes a vector-search group across its thresholds', async () => {
+    const sha = 'e'.repeat(40);
+    await insertCommit(sha, '2026-04-23T12:00:00Z');
+    const rows: ReadonlyArray<readonly [string, number, number]> = [
+      ['vortex-turboquant', 0.5, 1_000],
+      ['vortex-turboquant', 0.75, 2_000],
+      ['vortex-flat', 0.5, 2_000],
+      ['vortex-flat', 0.75, 8_000],
+    ];
+    for (const [flavor, threshold, valueNs] of rows) {
+      await getPool().query(
+        `INSERT INTO vector_search_runs
+             (measurement_id, commit_sha, dataset, layout, flavor, threshold, value_ns,
+              all_runtimes_ns, matches, rows_scanned, bytes_scanned, iterations)
+           VALUES ($1, $2, 'cohere-large-10m', 'partitioned', $3, $4, $5,
+                   '{1}'::bigint[], 42, 1000000, 5000000, 1)`,
+        [nextId(), sha, flavor, threshold, valueNs],
+      );
+    }
+
+    const summary = expectDefined(
+      await collectGroupSummary({
+        k: 'VectorSearchGroup',
+        dataset: 'cohere-large-10m',
+        layout: 'partitioned',
+      }),
+      'vector-search summary',
+    );
+    if (summary.type !== 'vectorSearch') {
+      throw new Error(`expected vectorSearch summary, got ${summary.type}`);
+    }
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-turboquant', 'vortex-flat']);
+    expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
+    // sqrt((2010/1010) * (8010/2010)).
+    expect(summary.rankings[1].score).toBeCloseTo(Math.sqrt((2010 / 1010) * (8010 / 2010)), 6);
+  });
+
   it('keeps a sub-second latest commit timestamp (no whole-second truncation)', async () => {
     // A single commit whose timestamp carries microseconds. The pre-fix code
     // rendered MAX(ts) to whole-second text and rebound it with exact
@@ -377,7 +554,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertCompSizePair(sha, 1_000, 4_000);
 
     const time = expectDefined(
-      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }),
       'compression-time summary',
     );
     if (time.type !== 'compression') {
@@ -392,7 +569,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     expect(timeByKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
 
     const size = expectDefined(
-      await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionSizeGroup' }),
       'compression-size summary',
     );
     if (size.type !== 'compressionSize') {
@@ -418,7 +595,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertCompSizePair(higherSha, 2_000, 8_000);
 
     const time = expectDefined(
-      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }),
       'compression-time summary',
     );
     if (time.type !== 'compression') {
@@ -433,7 +610,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     expect(vortexTime.ratio).toBeCloseTo(4.0, 6);
 
     const size = expectDefined(
-      await collectGroupSummary({ k: 'CompressionSizeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionSizeGroup' }),
       'compression-size summary',
     );
     if (size.type !== 'compressionSize') {
@@ -459,7 +636,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertCompTimePair(newer, 'decode', 1_000, 2_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }),
       'compression-time summary',
     );
     if (summary.type !== 'compression') {
@@ -478,7 +655,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertCompTimePair(sha, 'decode', 1_000, 2_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'CompressionTimeGroup' }, []),
+      await collectGroupSummary({ k: 'CompressionTimeGroup' }),
       'compression-time summary',
     );
     if (summary.type !== 'compression') {
@@ -504,16 +681,13 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertQuery(sha, 1, 'duckdb', 'parquet', 50_000);
 
     const summary = expectDefined(
-      await collectGroupSummary(
-        {
-          k: 'QueryGroup',
-          dataset: 'tpch',
-          dataset_variant: null,
-          scale_factor: '1',
-          storage: 'nvme',
-        },
-        [],
-      ),
+      await collectGroupSummary({
+        k: 'QueryGroup',
+        dataset: 'tpch',
+        dataset_variant: null,
+        scale_factor: '1',
+        storage: 'nvme',
+      }),
       'query summary',
     );
     if (summary.type !== 'queryBenchmark') {
@@ -627,16 +801,13 @@ describe.skipIf(!dockerAvailable())(
     });
 
     it('prefers a stamped row over a newer NULL-stamped row and keeps all-NULL series', async () => {
-      const summary = await collectGroupSummary(
-        {
-          k: 'QueryGroup',
-          dataset: 'tpch',
-          dataset_variant: null,
-          scale_factor: '1',
-          storage: 'nvme',
-        },
-        [],
-      );
+      const summary = await collectGroupSummary({
+        k: 'QueryGroup',
+        dataset: 'tpch',
+        dataset_variant: null,
+        scale_factor: '1',
+        storage: 'nvme',
+      });
       if (summary === null || summary.type !== 'queryBenchmark') {
         throw new Error(`expected queryBenchmark summary, got ${summary?.type}`);
       }
@@ -653,16 +824,13 @@ describe.skipIf(!dockerAvailable())(
     });
 
     it('enumerates the format, engine, and query_idx successor branches', async () => {
-      const summary = await collectGroupSummary(
-        {
-          k: 'QueryGroup',
-          dataset: 'tpch',
-          dataset_variant: null,
-          scale_factor: '1',
-          storage: 'nvme',
-        },
-        [],
-      );
+      const summary = await collectGroupSummary({
+        k: 'QueryGroup',
+        dataset: 'tpch',
+        dataset_variant: null,
+        scale_factor: '1',
+        storage: 'nvme',
+      });
       if (summary === null || summary.type !== 'queryBenchmark') {
         throw new Error(`expected queryBenchmark summary, got ${summary?.type}`);
       }

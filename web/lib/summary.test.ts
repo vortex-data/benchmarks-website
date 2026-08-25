@@ -9,7 +9,12 @@ vi.mock('./db', () => ({
   getPool: () => ({ query }),
 }));
 
+import { FAMILIES } from './families';
+import type { GroupKey } from './slug';
 import { collectGroupSummary } from './summary';
+
+/** Every group discriminant, from the fact-table registry. */
+const GROUP_KINDS = FAMILIES.map((family) => family.groupKind);
 
 describe('compression summaries', () => {
   beforeEach(() => {
@@ -26,7 +31,7 @@ describe('compression summaries', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'CompressionSizeGroup' }, []);
+    const summary = await collectGroupSummary({ k: 'CompressionSizeGroup' });
     if (summary === null || summary.type !== 'compressionSize') {
       throw new Error('expected a compressionSize summary');
     }
@@ -40,8 +45,8 @@ describe('compression summaries', () => {
   it('applies one extensible snapshot policy to timings and sizes', async () => {
     query.mockResolvedValue({ rows: [] });
 
-    await collectGroupSummary({ k: 'CompressionTimeGroup' }, []);
-    await collectGroupSummary({ k: 'CompressionSizeGroup' }, []);
+    await collectGroupSummary({ k: 'CompressionTimeGroup' });
+    await collectGroupSummary({ k: 'CompressionSizeGroup' });
 
     expect(query).toHaveBeenCalledTimes(2);
     const expectedParams = [
@@ -64,6 +69,170 @@ describe('compression summaries', () => {
       // Adding another independently benchmarked format must not require
       // another hard-coded format branch or a per-dataset history scan.
       expect(text).not.toContain("format = 'lance'");
+    }
+  });
+});
+
+describe('timing summaries (shared ranking model)', () => {
+  beforeEach(() => {
+    query.mockReset();
+  });
+
+  it('ranks random access across every chart, not the first one', async () => {
+    // The regression: the old summary published one chart's raw times under the
+    // group-wide title. `lance` wins `feature-vectors/correlated` outright and
+    // loses the other two charts 3x; the group ranking must reflect all three.
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'lance', value: 350_000 },
+        { bucket: 'feature-vectors/correlated', series: 'vortex', value: 1_100_000 },
+        { bucket: 'nested-structs/uniform', series: 'lance', value: 3_000_000 },
+        { bucket: 'nested-structs/uniform', series: 'vortex', value: 1_000_000 },
+        { bucket: 'taxi', series: 'lance', value: 3_000_000 },
+        { bucket: 'taxi', series: 'vortex', value: 1_000_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
+    expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 6);
+    expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 6);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+    expect(summary.rankings.map((r) => r.measured)).toEqual([3, 3]);
+    expect(summary.rankings.map((r) => r.total)).toEqual([3, 3]);
+  });
+
+  it('reads each random-access format at its own newest run', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
+    // Per-series freshness, not one global latest commit: a format that skipped
+    // the newest commit stays on the card at its own last run.
+    expect(text).toContain('DISTINCT ON (r.dataset, r.format)');
+    expect(text).toContain('ORDER BY r.dataset, r.format, c.timestamp DESC');
+    expect(text).not.toContain('MAX(c2.timestamp)');
+  });
+
+  it('penalizes a series that skipped a bucket and reports its coverage', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'lance', value: 100_000 },
+        { bucket: 'feature-vectors/correlated', series: 'vortex', value: 200_000 },
+        { bucket: 'taxi', series: 'vortex', value: 50_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    // lance skipped `taxi`, so that bucket scores max(100_000, 0) * 2 against
+    // taxi's best of 50_000 -- which is what keeps it behind `vortex`.
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
+    expect(byName.get('lance')?.score).toBeCloseTo(Math.sqrt(200_010 / 50_010), 6);
+    expect(byName.get('lance')?.measured).toBe(1);
+    expect(byName.get('lance')?.total).toBe(2);
+    // `totalRuntime` reports measured time only; the penalty never enters it.
+    expect(byName.get('lance')?.totalRuntime).toBeCloseTo(100_000, 6);
+    expect(byName.get('vortex')?.measured).toBe(2);
+  });
+
+  it('does not reward a series for skipping a slow bucket', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'easy', series: 'partial', value: 100_000 },
+        { bucket: 'easy', series: 'complete', value: 110_000 },
+        { bucket: 'slow', series: 'complete', value: 100_000_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    // The absolute penalty for `partial` is 200_000ns. That value is faster
+    // than the measured 100_000_000ns best on `slow`, so the 2x ratio floor
+    // must prevent the absent bucket from improving the partial series' score.
+    expect(summary.rankings.map((r) => r.name)).toEqual(['complete', 'partial']);
+    expect(byName.get('partial')?.score).toBeCloseTo(Math.sqrt(2), 6);
+    expect(byName.get('partial')?.measured).toBe(1);
+    expect(byName.get('partial')?.total).toBe(2);
+  });
+
+  it('summarizes a vector-search group across its thresholds', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 0.5, series: 'vortex-turboquant', value: 1_000 },
+        { bucket: 0.75, series: 'vortex-turboquant', value: 2_000 },
+        { bucket: 0.5, series: 'vortex-flat', value: 2_000 },
+        { bucket: 0.75, series: 'vortex-flat', value: 8_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({
+      k: 'VectorSearchGroup',
+      dataset: 'cohere-large-10m',
+      layout: 'partitioned',
+    });
+    if (summary === null || summary.type !== 'vectorSearch') {
+      throw new Error('expected a vectorSearch summary');
+    }
+    expect(summary.title).toBe('Vector Search Performance');
+    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-turboquant', 'vortex-flat']);
+    expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
+    expect(summary.rankings[1].score).toBeCloseTo(Math.sqrt((2010 / 1010) * (8010 / 2010)), 6);
+    expect(summary.rankings[1].totalRuntime).toBeCloseTo(10_000, 6);
+  });
+
+  it('summarizes every query group, with no dataset allowlist', async () => {
+    // `spatialbench` (and every other suite outside the retired v2 five) used to
+    // fall through to `null` and render no card at all.
+    for (const dataset of ['spatialbench', 'fineweb', 'gharchive', 'appian', 'tpch']) {
+      query.mockResolvedValueOnce({
+        rows: [
+          { query_idx: 1, series: 'datafusion:vortex', value_ns: 1_000 },
+          { query_idx: 1, series: 'duckdb:parquet', value_ns: 2_000 },
+        ],
+      });
+      const summary = await collectGroupSummary({
+        k: 'QueryGroup',
+        dataset,
+        dataset_variant: null,
+        scale_factor: null,
+        storage: 'nvme',
+      });
+      expect(summary?.type).toBe('queryBenchmark');
+    }
+  });
+
+  it('returns a summary for every group kind', async () => {
+    // The default-on contract: a new suite landing in any fact table gets a
+    // card without a summary-side change. Only an empty result yields `null`.
+    const keys: GroupKey[] = [
+      {
+        k: 'QueryGroup',
+        dataset: 'newsuite',
+        dataset_variant: null,
+        scale_factor: null,
+        storage: 'nvme',
+      },
+      { k: 'CompressionTimeGroup' },
+      { k: 'CompressionSizeGroup' },
+      { k: 'RandomAccessGroup' },
+      { k: 'VectorSearchGroup', dataset: 'd', layout: 'l' },
+    ];
+    expect(keys.map((key) => key.k).sort()).toEqual([...GROUP_KINDS].sort());
+    for (const key of keys) {
+      query.mockResolvedValue({ rows: [] });
+      // Every kind reaches SQL; none short-circuits to `null` on its key alone.
+      query.mockClear();
+      await collectGroupSummary(key);
+      expect(query).toHaveBeenCalled();
     }
   });
 });

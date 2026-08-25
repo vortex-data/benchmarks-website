@@ -3,7 +3,20 @@
 
 import { displayFormat, displaySeriesLabel } from '@/lib/chart-format';
 import { formatTimeNs } from '@/lib/format';
-import type { Summary } from '@/lib/summary';
+import type { SeriesRanking, Summary } from '@/lib/summary';
+
+/**
+ * Hover text for a ranked series: its full label plus, when the series was not
+ * measured everywhere, how much of its score came from the missing-bucket
+ * penalty. A partially measured series is ranked, not hidden, so the coverage
+ * has to be legible somewhere.
+ */
+function seriesTitle(item: SeriesRanking): string {
+  const label = displaySeriesLabel(item.name);
+  return item.measured >= item.total
+    ? label
+    : `${label} - measured in ${item.measured} of ${item.total} charts; the rest scored by the missing-series penalty`;
+}
 
 /**
  * The per-group summary card.
@@ -11,7 +24,8 @@ import type { Summary } from '@/lib/summary';
  * Every [`Summary`] variant renders the same `.benchmark-scores-summary` shape
  * (a `.scores-title`, a `.scores-list` of `.score-item` rows, and a
  * `.scores-explanation` footer); only the rank label, value, and optional
- * runtime change. The card stays visible whether or not the enclosing group is
+ * runtime change. The three timing families (query, random access, vector
+ * search) share one arm because they share one [`SeriesRanking`] shape. The card stays visible whether or not the enclosing group is
  * expanded (the CSS only hides `.chart-grid` when the disclosure is closed), so
  * the at-a-glance rankings show without expanding the group.
  *
@@ -22,30 +36,6 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
     return null;
   }
   switch (summary.type) {
-    case 'randomAccess':
-      if (summary.rankings.length === 0) {
-        return null;
-      }
-      return (
-        <section className="benchmark-scores-summary" aria-label={summary.title}>
-          <h3 className="scores-title">{summary.title}</h3>
-          <div className="scores-list">
-            {summary.rankings.map((item, idx) => (
-              <div className="score-item" key={item.name}>
-                <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={displaySeriesLabel(item.name)}>
-                  {displaySeriesLabel(item.name)}
-                </span>
-                <span className="score-metrics">
-                  <span className="score-value">{formatTimeNs(item.time)}</span>
-                  <span className="score-runtime">{item.ratio.toFixed(2)}x</span>
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="scores-explanation">{summary.explanation}</div>
-        </section>
-      );
     case 'compression': {
       if (summary.rankings.length === 0) {
         return null;
@@ -118,6 +108,8 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
         </section>
       );
     case 'queryBenchmark':
+    case 'randomAccess':
+    case 'vectorSearch':
       if (summary.rankings.length === 0) {
         return null;
       }
@@ -128,7 +120,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={displaySeriesLabel(item.name)}>
+                <span className="score-series" title={seriesTitle(item)}>
                   {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">
