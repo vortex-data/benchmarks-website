@@ -66,6 +66,9 @@ lexicographic order, which equals numeric order under this convention.
   use the same indexes, and the files are frozen post-apply (see Authoring
   rules), so their prose is historical. The current consumer is documented in
   `benchmarks-website/web/lib/summary.ts` / `queries.ts`.
+- `008_migrator_ownership.sql` — transfers the ledger and data tables to
+  `migrator`. Apply it once as the RDS master. Later migrations can alter
+  existing objects through the schema deployment workflow.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
 PR-1.4, `004` in PR-2.1, `005` in the Phase-4 operator-gate work (the v4
@@ -97,7 +100,7 @@ query_measurements` — the 006 prod backfill showed the planner needs it.)
 ## Bootstrap ordering — `requires-superuser` migrations
 
 Migrations whose header carries a `-- migrate-schema: requires-superuser`
-marker comment (currently `002`, `004`, `005`, `006`, and `007`; the marker in
+marker comment (currently `002`, `004`, `005`, `006`, `007`, and `008`; the marker in
 the file is authoritative, not this list) must be applied by a master-capable
 role. Before applying a marked file, the runner
 ([`scripts/migrate-schema.py`](../scripts/migrate-schema.py)) asserts the
@@ -109,7 +112,8 @@ through its privileged `CREATE ROLE` / `GRANT` / `ALTER DEFAULT PRIVILEGES` /
 master-owned-table DDL statements.
 
 The ordering contract this enforces: **apply every marked migration as the RDS
-master before any `migrator`-role deploy.** The `migrator` IAM user that
+master before any `migrator`-role deploy.** Migration `008` transfers the
+existing objects to `migrator`, so later object DDL needs no master role. The `migrator` IAM user that
 `schema-deploy.yml` assumes into is itself created by `002` and is not
 master-capable, so it cannot apply the marked files; those must land first
 under the master. `001` (plain DDL) and `003` (a ledger grant) carry no marker
