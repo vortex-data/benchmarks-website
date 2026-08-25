@@ -37,7 +37,8 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                   {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">
-                  <span className="score-value">{formatTimeNs(item.time)}</span>
+                  <span className="score-value">{formatTimeNs(item.geomean)} geomean</span>
+                  <span className="score-runtime">{formatTimeNs(item.total)} total</span>
                   <span className="score-runtime">{item.ratio.toFixed(2)}x</span>
                 </span>
               </div>

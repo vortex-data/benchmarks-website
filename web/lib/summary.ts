@@ -6,7 +6,8 @@
  *
  * Each `collect*Summary` runs focused SQL queries and returns one [`Summary`]
  * variant. Query summaries use a v2 dataset allowlist. Compression summaries
- * compare the configured formats with Parquet.
+ * compare the configured formats with Parquet. The random-access summary
+ * aggregates every dataset in its group (sum + geomean).
  *
  * Behaviour-preservation notes (substrate migration, DuckDB -> Postgres):
  *  - Nullable-dim equality (`dataset_variant` / `scale_factor`) in the
@@ -55,13 +56,15 @@ function compressionSummaryQueryParams(): [string[], string[], string, string] {
   ];
 }
 
-/** One random-access summary row. */
+/** One random-access summary row, aggregated over the whole group. */
 export interface RandomAccessRanking {
   /** Series name, normally the physical format. */
   name: string;
-  /** Latest measured time in nanoseconds. */
-  time: number;
-  /** Ratio to the fastest series in the same chart. */
+  /** Sum of the series' latest per-dataset times, in nanoseconds. */
+  total: number;
+  /** Geometric mean of the same per-dataset times, in nanoseconds. */
+  geomean: number;
+  /** Ratio of this series' geomean to the fastest series' geomean. */
   ratio: number;
 }
 
@@ -125,9 +128,9 @@ export type Summary =
 
 /**
  * Compute the summary for one group, if its kind has one.
- * `charts` is only consulted for the random-access path (which scans its chart
- * links for the latest populated dataset); the other paths query their fact
- * table directly. The structural `{ name }[]` accepts a `ChartLink[]`.
+ * `charts` is only consulted for the random-access path (whose chart links name
+ * the datasets it aggregates over); the other paths query their fact table
+ * directly. The structural `{ name }[]` accepts a `ChartLink[]`.
  */
 export function collectGroupSummary(
   key: GroupKey,
@@ -181,62 +184,135 @@ function geoMean(values: readonly number[]): number | null {
   return n > 0 ? Math.exp(sumLn / n) : null;
 }
 
+/**
+ * The random-access group summary: one row per format, aggregating **every**
+ * dataset in the group rather than reading a single chart.
+ *
+ * The group has grown from one random-access benchmark to many, so taking the
+ * headline from the first populated chart made the summary a report on whichever
+ * dataset happened to sort first (in practice `feature-vectors/correlated`, the
+ * noisiest one). Both aggregates are reported per format: the `total` (sum) and
+ * the `geomean` of the per-dataset times, the same pairing the query summary
+ * shows (`totalRuntime` + a geomean `score`).
+ *
+ * Two rules keep the two aggregates comparable across formats, following the
+ * compression summaries' "newest complete snapshot" precedent rather than the
+ * query summary's penalty imputation (which only works for ratios -- imputing
+ * into an absolute sum or geomean would invent a runtime):
+ *
+ *  - **One snapshot commit.** All of `random-access-bench`'s formats and
+ *    datasets are emitted by the same run, so the aggregate is taken at the
+ *    newest commit that has any positive random-access row for this group.
+ *  - **Complete coverage or nothing.** A format is ranked only if it has a
+ *    positive value for every dataset measured at that commit; a format missing
+ *    a dataset is dropped instead of being summed over a smaller (and therefore
+ *    flatteringly cheaper) set. Non-positive and absent values never enter the
+ *    geomean, which is defined over strictly positive values only.
+ */
 async function collectRandomAccessSummary(
   charts: readonly { readonly name: string }[],
 ): Promise<Summary | null> {
-  // Scan the group's chart links in order; the first chart with valid rows at
-  // its latest commit wins (matching the Rust early-return loop).
-  const text = `
-    SELECT r.format AS name, r.value_ns::float8 AS value
-      FROM random_access_times r
-      JOIN commits c USING (commit_sha)
-     WHERE r.dataset = $1
-       AND r.value_ns > 0
-       AND c.timestamp = (
-            SELECT MAX(c2.timestamp)
-              FROM random_access_times r2
-              JOIN commits c2 USING (commit_sha)
-             WHERE r2.dataset = $2
-               AND r2.value_ns > 0
-       )
-     ORDER BY r.value_ns, r.format
-  `;
-  for (const chart of charts) {
-    const rows = (
-      await getPool().query<{ name: string; value: number }>(text, [chart.name, chart.name])
-    ).rows;
-    const rankings: RandomAccessRanking[] = rows.map((row) => ({
-      name: row.name,
-      time: row.value,
-      ratio: 0,
-    }));
-    if (rankings.length === 0) {
-      continue;
-    }
-    // Streaming min (loop, not a `Math.min(...)` spread) for consistency with
-    // `collectCompressionSizeSummary` and to avoid a large-array call-argument
-    // cliff; the Rust source uses `reduce(f64::min)` here.
-    let minTime = Infinity;
-    for (const r of rankings) {
-      minTime = Math.min(minTime, r.time);
-    }
-    if (minTime <= 0 || !Number.isFinite(minTime)) {
-      continue;
-    }
-    for (const r of rankings) {
-      r.ratio = r.time / minTime;
-    }
-    rankings.sort((a, b) =>
-      a.time < b.time ? -1 : a.time > b.time ? 1 : compareCodeUnits(a.name, b.name),
-    );
-    return {
-      type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings,
-      explanation: 'Random access time | Ratio to fastest (lower is better)',
-    };
+  // The group's chart names ARE its dataset names (`collectRandomAccessGroup`
+  // builds one chart link per distinct dataset), so they scope the aggregate to
+  // this group's results in a single query instead of the previous
+  // one-query-per-chart-until-a-hit loop.
+  const datasets = charts.map((chart) => chart.name);
+  if (datasets.length === 0) {
+    return null;
   }
-  return null;
+  const text = `
+    WITH scoped AS (
+      SELECT r.dataset AS dataset,
+             r.format AS format,
+             r.commit_sha AS commit_sha,
+             c.timestamp AS ts,
+             r.value_ns::float8 AS value
+        FROM random_access_times r
+        JOIN commits c USING (commit_sha)
+       WHERE r.dataset = ANY($1::text[])
+         AND r.value_ns > 0
+    ), snapshot AS (
+      SELECT MAX(ts) AS ts FROM scoped
+    )
+    SELECT DISTINCT ON (s.dataset, s.format)
+           s.dataset AS dataset, s.format AS name, s.value AS value
+      FROM scoped s
+      JOIN snapshot ON s.ts = snapshot.ts
+     ORDER BY s.dataset, s.format, s.commit_sha
+  `;
+  // `DISTINCT ON` collapses a same-timestamp commit tie (the accepted
+  // same-second tie behaviour elsewhere in the read path) to one row per
+  // (dataset, format), so a tie cannot double-count into the sum.
+  const rows = (
+    await getPool().query<{ dataset: string; name: string; value: number }>(text, [datasets])
+  ).rows;
+  const measured = new Set<string>();
+  const valuesByFormat = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    measured.add(row.dataset);
+    let byDataset = valuesByFormat.get(row.name);
+    if (byDataset === undefined) {
+      byDataset = new Map<string, number>();
+      valuesByFormat.set(row.name, byDataset);
+    }
+    byDataset.set(row.dataset, row.value);
+  }
+  if (measured.size === 0) {
+    return null;
+  }
+
+  const rankings: RandomAccessRanking[] = [];
+  for (const name of [...valuesByFormat.keys()].sort(compareCodeUnits)) {
+    const byDataset = valuesByFormat.get(name);
+    if (byDataset === undefined || byDataset.size !== measured.size) {
+      // Incomplete coverage of the snapshot's datasets: drop the format rather
+      // than publish a sum and geomean over a different dataset set.
+      continue;
+    }
+    // The size check above means this format's dataset keys are exactly
+    // `measured`, so the `?? 0` is unreachable; a 0 would be excluded from the
+    // geomean anyway.
+    const values = [...measured]
+      .sort(compareCodeUnits)
+      .map((dataset) => byDataset.get(dataset) ?? 0);
+    const geomean = geoMean(values);
+    if (geomean === null) {
+      continue;
+    }
+    let total = 0;
+    for (const value of values) {
+      total += value;
+    }
+    rankings.push({ name, total, geomean, ratio: 0 });
+  }
+  if (rankings.length === 0) {
+    return null;
+  }
+  // Streaming min (loop, not a `Math.min(...)` spread) for consistency with
+  // `collectCompressionSizeSummary` and to avoid a large-array call-argument
+  // cliff.
+  let fastest = Infinity;
+  for (const ranking of rankings) {
+    fastest = Math.min(fastest, ranking.geomean);
+  }
+  if (fastest <= 0 || !Number.isFinite(fastest)) {
+    return null;
+  }
+  for (const ranking of rankings) {
+    ranking.ratio = ranking.geomean / fastest;
+  }
+  rankings.sort((a, b) =>
+    a.geomean < b.geomean ? -1 : a.geomean > b.geomean ? 1 : compareCodeUnits(a.name, b.name),
+  );
+  const datasetNoun = measured.size === 1 ? 'dataset' : 'datasets';
+  return {
+    type: 'randomAccess',
+    title: 'Random Access Performance',
+    rankings,
+    explanation:
+      `Geomean and total random access time across ${measured.size} ${datasetNoun} | ` +
+      'Ratio of geomean to fastest (lower is better)',
+  };
 }
 
 async function collectCompressionSummary(): Promise<Summary | null> {

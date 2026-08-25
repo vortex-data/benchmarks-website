@@ -23,7 +23,7 @@ const RANDOM_ACCESS: Group = {
   summary: {
     type: 'randomAccess',
     title: 'Random Access Performance',
-    rankings: [{ name: 'vortex', time: 1_500_000, ratio: 1 }],
+    rankings: [{ name: 'vortex', total: 3_000_000, geomean: 1_500_000, ratio: 1 }],
     explanation: 'lower is better',
   },
   description: 'Tests selecting arbitrary row indices on NVMe',

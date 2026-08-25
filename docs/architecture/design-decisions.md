@@ -146,6 +146,23 @@ slugs, and decoding validates the full shape, so they are not an injection
 surface.
 → `web/lib/slug.ts`.
 
+**The random-access group summary aggregates the whole group, not its first chart.**
+The headline used to be lifted from the first chart in the group with data (in
+practice `feature-vectors/correlated`), which was fine when random access had one
+benchmark and misleading once it had many — the summary reported whatever that one
+dataset did. It now reports two aggregates per format over every dataset in the
+group: the **sum** and the **geomean** of their latest times, both labelled in the
+card. Aggregating means choosing a snapshot and a coverage rule: the aggregate is
+taken at the newest commit with any positive random-access row for the group (all
+of `random-access-bench`'s datasets and formats come from the same run), and a
+format is ranked only if it has a positive value for **every** dataset measured at
+that commit. That follows the compression summaries' "newest complete snapshot"
+precedent rather than the query summary's missing-series penalty, which works for
+ratios but would invent a runtime inside an absolute sum or geomean. The other
+groups' summaries are untouched — `RandomAccessGroup` is a singleton group with
+its own `collect*Summary`, so no other headline number moves.
+→ `web/lib/summary.ts` (`collectRandomAccessSummary`), `web/components/SummaryCard.tsx`.
+
 ## Performance & client hydration
 
 The v4 stack is serverless and the site is low-traffic, so the costly case is

@@ -74,7 +74,7 @@ describe.skipIf(!dockerAvailable())(
       ]);
     });
 
-    it('computes the random-access summary (ratio to fastest)', async () => {
+    it('aggregates the random-access summary over the group (sum + geomean)', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Random Access')?.summary,
@@ -84,10 +84,19 @@ describe.skipIf(!dockerAvailable())(
         throw new Error(`expected randomAccess summary, got ${summary.type}`);
       }
       expect(summary.title).toBe('Random Access Performance');
+      expect(summary.explanation).toContain('across 1 dataset');
       expect(summary.rankings[0].name).toBe('vortex-file-compressed');
       expect(summary.rankings[1].name).toBe('parquet');
       expect(summary.rankings[0].ratio).toBeCloseTo(1.0, 6);
       expect(summary.rankings[1].ratio).toBeCloseTo(2.0, 6);
+      // The fixture's single `taxi` dataset at the newest commit: both
+      // aggregates collapse to that one latest value (500 / 1000 plus the
+      // third commit's bias), so the pre-aggregation headline is preserved
+      // for a one-chart group.
+      expect(summary.rankings[0].total).toBeCloseTo(100_500, 6);
+      expect(summary.rankings[0].geomean).toBeCloseTo(100_500, 6);
+      expect(summary.rankings[1].total).toBeCloseTo(201_000, 6);
+      expect(summary.rankings[1].geomean).toBeCloseTo(201_000, 6);
     });
 
     it('computes compression rankings with Parquet and Lance baselines', async () => {

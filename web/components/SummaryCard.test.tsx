@@ -16,27 +16,34 @@ describe('SummaryCard', () => {
     expect(render(undefined)).toBe('');
   });
 
-  it('renders a randomAccess card with ranks, ns times, and ratios', () => {
+  it('renders a randomAccess card with labelled geomean and total aggregates', () => {
     const html = render({
       type: 'randomAccess',
       title: 'Random Access Performance',
       rankings: [
-        { name: 'vortex', time: 1_500_000, ratio: 1 },
-        { name: 'parquet', time: 3_000_000, ratio: 2 },
+        { name: 'vortex', total: 6_000_000, geomean: 1_500_000, ratio: 1 },
+        { name: 'parquet', total: 12_000_000, geomean: 3_000_000, ratio: 2 },
       ],
-      explanation: 'Random access time | Ratio to fastest (lower is better)',
+      explanation:
+        'Geomean and total random access time across 4 datasets | ' +
+        'Ratio of geomean to fastest (lower is better)',
     });
     expect(html).toContain('class="benchmark-scores-summary"');
     expect(html).toContain('<h3 class="scores-title">Random Access Performance</h3>');
     expect(html).toContain('#1');
     expect(html).toContain('vortex');
-    expect(html).toContain('1.50 ms');
+    // Both aggregates render, each labelled so the reader is not guessing which
+    // number is which.
+    expect(html).toContain('1.50 ms geomean');
+    expect(html).toContain('6.00 ms total');
     expect(html).toContain('1.00x');
     expect(html).toContain('#2');
     expect(html).toContain('parquet');
-    expect(html).toContain('3.00 ms');
+    expect(html).toContain('3.00 ms geomean');
+    expect(html).toContain('12.00 ms total');
     expect(html).toContain('2.00x');
-    expect(html).toContain('Random access time | Ratio to fastest (lower is better)');
+    expect(html).toContain('Geomean and total random access time across 4 datasets');
+    expect(html).toContain('Ratio of geomean to fastest (lower is better)');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
