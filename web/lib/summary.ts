@@ -48,11 +48,8 @@ import type { GroupKey } from './slug';
  * snapshot and Parquet data from the same commit.
  */
 const COMPRESSION_SHARED_SNAPSHOT_FORMATS = ['vortex-file-compressed', 'parquet'];
-const COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS = [
-  ...COMPRESSION_SHARED_SNAPSHOT_FORMATS,
-  'arrow-ipc',
-];
 const COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS = ['lance'];
+const ARROW_IPC_FORMAT = 'arrow-ipc';
 
 const COMPRESSION_SNAPSHOT_ANCHOR = 'vortex-file-compressed';
 const COMPRESSION_BASELINE = 'parquet';
@@ -66,12 +63,17 @@ function compressionSummaryQueryParams(): [string[], string[], string, string] {
   ];
 }
 
-function compressionSizeSummaryQueryParams(): [string[], string[], string, string] {
+function compressionSizeSummaryQueryParams(): [string[], string[], string, string, string] {
   return [
-    [...COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS, ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS],
-    COMPRESSION_SIZE_SHARED_SNAPSHOT_FORMATS,
+    [
+      ...COMPRESSION_SHARED_SNAPSHOT_FORMATS,
+      ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS,
+      ARROW_IPC_FORMAT,
+    ],
+    COMPRESSION_SHARED_SNAPSHOT_FORMATS,
     COMPRESSION_SNAPSHOT_ANCHOR,
     COMPRESSION_BASELINE,
+    ARROW_IPC_FORMAT,
   ];
 }
 
@@ -629,8 +631,9 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot
- * and compares it with Parquet from the same commit. Compression ratios use the newest available
- * decoded Arrow memory size for each dataset. The size commit does not need to match.
+ * and compares it with Parquet from the same commit. Arrow IPC uses its newest value for each
+ * dataset and Parquet from the same commit. Compression ratios use the newest available decoded
+ * Arrow memory size for each dataset. The size commit does not need to match.
  */
 async function compressionSizeSamples(): Promise<
   Array<{
@@ -646,6 +649,7 @@ async function compressionSizeSamples(): Promise<
              c.timestamp AS ts,
              s.commit_sha AS commit_sha,
              s.value_bytes::float8 AS value_bytes,
+             s.uncompressed_bytes::float8 AS uncompressed_bytes,
              p.value_bytes::float8 AS parquet_bytes,
              s.dataset AS dataset,
              s.dataset_variant AS dataset_variant
@@ -664,6 +668,7 @@ async function compressionSizeSamples(): Promise<
       SELECT format,
              CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
         FROM unnest($1::text[]) AS configured(format)
+       WHERE format <> $5
     ), snapshot_commits AS (
       SELECT policy.anchor_format, pairs.ts, pairs.commit_sha
         FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
@@ -675,12 +680,25 @@ async function compressionSizeSamples(): Promise<
        ORDER BY anchor_format, ts DESC, commit_sha DESC
     ), selected AS (
       SELECT pairs.format, pairs.value_bytes, pairs.parquet_bytes,
+             pairs.uncompressed_bytes,
              pairs.dataset, pairs.dataset_variant
         FROM pairs
         JOIN snapshot_policy policy ON policy.format = pairs.format
         JOIN latest_snapshots latest
          ON latest.anchor_format = policy.anchor_format
          AND latest.commit_sha = pairs.commit_sha
+    ), latest_arrow_ipc AS (
+      SELECT DISTINCT ON (pairs.dataset, pairs.dataset_variant)
+             pairs.format, pairs.value_bytes, pairs.parquet_bytes,
+             pairs.uncompressed_bytes, pairs.dataset, pairs.dataset_variant
+        FROM pairs
+       WHERE pairs.format = $5
+       ORDER BY pairs.dataset, pairs.dataset_variant NULLS FIRST,
+                pairs.ts DESC, pairs.commit_sha DESC
+    ), selected_with_arrow_ipc AS (
+      SELECT * FROM selected
+      UNION ALL
+      SELECT * FROM latest_arrow_ipc
     ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
@@ -696,8 +714,9 @@ async function compressionSizeSamples(): Promise<
     SELECT selected.format AS format,
            selected.value_bytes AS "valueBytes",
            selected.parquet_bytes AS "parquetBytes",
-           uncompressed.uncompressed_bytes AS "uncompressedBytes"
-      FROM selected
+           COALESCE(selected.uncompressed_bytes, uncompressed.uncompressed_bytes)
+             AS "uncompressedBytes"
+      FROM selected_with_arrow_ipc selected
       LEFT JOIN latest_uncompressed_sizes uncompressed
         ON uncompressed.dataset = selected.dataset
        AND uncompressed.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant

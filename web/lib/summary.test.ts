@@ -105,10 +105,11 @@ describe('compression summaries', () => {
       'parquet',
     ];
     const sizeParams = [
-      ['vortex-file-compressed', 'parquet', 'arrow-ipc', 'lance'],
-      ['vortex-file-compressed', 'parquet', 'arrow-ipc'],
+      ['vortex-file-compressed', 'parquet', 'lance', 'arrow-ipc'],
+      ['vortex-file-compressed', 'parquet'],
       'vortex-file-compressed',
       'parquet',
+      'arrow-ipc',
     ];
     const calls = query.mock.calls as Array<[string, unknown[]]>;
     expect(calls[0][1]).toEqual(timingParams);
@@ -131,6 +132,8 @@ describe('compression summaries', () => {
     expect(calls[0][0]).toContain('s.uncompressed_bytes > 0');
     expect(calls[0][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
     expect(calls[1][0]).toContain('latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain('latest_arrow_ipc');
+    expect(calls[1][0]).toContain('selected_with_arrow_ipc');
     expect(calls[1][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
   });
 });

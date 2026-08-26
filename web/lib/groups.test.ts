@@ -171,7 +171,7 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.rankings[3].ratio).toBeCloseTo(4.0, 6);
       expect(summary.rankings[0].compressionRatio).toBeCloseTo(8.0, 6);
       expect(summary.rankings[1].compressionRatio).toBeCloseTo(4.0, 6);
-      expect(summary.rankings[2].compressionRatio).toBeCloseTo(52.0, 6);
+      expect(summary.rankings[2].compressionRatio).toBeCloseTo(2.0, 6);
       expect(summary.rankings[3].compressionRatio).toBeCloseTo(1.0, 6);
     });
 

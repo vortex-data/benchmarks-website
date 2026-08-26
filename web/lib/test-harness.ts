@@ -162,9 +162,11 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
     const compSizes: Array<readonly [string, number]> = [
       ['vortex-file-compressed', 4_000 + bias],
       ['parquet', 8_000 + 2 * bias],
-      ['arrow-ipc', 32_000 + 8 * bias],
     ];
     if (i === 0) {
+      // Arrow IPC is not present in every run. The summary must use its latest
+      // per-dataset value without tying it to the current Vortex snapshot.
+      compSizes.push(['arrow-ipc', 32_000]);
       compSizes.push(['lance', 16_000]);
     }
     const uncompressedBytes = 32_000 + 8 * bias;
