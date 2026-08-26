@@ -61,7 +61,7 @@ describe('compression summaries', () => {
     expect(byFormat.get('parquet')?.maxRatio).toBeCloseTo(1, 6);
     expect(byFormat.get('parquet')?.compressionRatio).toBeCloseTo(4, 6);
     expect(summary.explanation).toBe(
-      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet (lower is better)',
+      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet-zstd (lower is better)',
     );
   });
 
