@@ -46,7 +46,7 @@ const CACHE_OPTIONS = { tags: [BENCH_DATA_TAG], revalidate: DATA_CACHE_BACKSTOP_
  * This value must change when a deployment cannot read the preceding shape.
  * It is independent of the producer-facing benchmark schema version.
  */
-const GROUP_PAYLOAD_CACHE_VERSION = 'v6';
+const GROUP_PAYLOAD_CACHE_VERSION = 'v7';
 
 // The default last-100 group bundle, keyed by group slug. The slug is the cache
 // key (an `unstable_cache` argument), so one wrapper covers every group. A
