@@ -297,6 +297,28 @@ describe('timing summaries (shared ranking model)', () => {
     expect(byName.get('vortex')?.measured).toBe(2);
   });
 
+  it('keeps a format that has no complete random-access dataset', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'partial', value: 100_000 },
+        { bucket: 'feature-vectors/correlated', series: 'complete', value: 200_000 },
+        { bucket: 'feature-vectors/uniform', series: 'complete', value: 300_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['complete', 'partial']);
+    expect(byName.get('partial')?.score).toBeCloseTo(2, 6);
+    expect(byName.get('partial')?.measured).toBe(0);
+    expect(byName.get('partial')?.total).toBe(1);
+    expect(byName.get('partial')?.totalRuntime).toBe(0);
+  });
+
   it('does not reward a series for skipping a slow bucket', async () => {
     query.mockResolvedValueOnce({
       rows: [

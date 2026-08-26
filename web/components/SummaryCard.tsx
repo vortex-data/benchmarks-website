@@ -182,7 +182,9 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                 </span>
                 <span className="score-metrics">
                   <span className="score-value">{item.score.toFixed(2)}x</span>
-                  <span className="score-runtime">{formatTimeNs(item.totalRuntime)}</span>
+                  <span className="score-runtime">
+                    {item.measured > 0 ? formatTimeNs(item.totalRuntime) : '—'}
+                  </span>
                 </span>
               </div>
             ))}

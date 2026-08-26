@@ -250,9 +250,13 @@ function rankSeries<K>(
   compareBuckets: (a: K, b: K) => number,
   penaltyFloorNs: number,
   missingRatioFloor: number,
+  knownSeries: readonly string[] = [],
 ): SeriesRanking[] {
   const buckets = new Map<string, K>();
   const valuesBySeries = new Map<string, Map<string, number>>();
+  for (const series of knownSeries) {
+    valuesBySeries.set(series, new Map<string, number>());
+  }
   for (const sample of samples) {
     if (!(sample.value > 0) || !Number.isFinite(sample.value)) {
       continue;
@@ -305,10 +309,8 @@ function rankSeries<K>(
         maxRuntime = value;
       }
     }
-    if (!Number.isFinite(maxRuntime)) {
-      continue;
-    }
-    const penalty = Math.max(maxRuntime, penaltyFloorNs) * 2;
+    const penaltyBase = Number.isFinite(maxRuntime) ? maxRuntime : penaltyFloorNs;
+    const penalty = Math.max(penaltyBase, penaltyFloorNs) * 2;
     const ratios: number[] = [];
     for (const [bucketKey] of sortedBuckets) {
       const base = bestByBucket.get(bucketKey);
@@ -425,9 +427,11 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
   const rows = (await getPool().query<{ bucket: string; series: string; value: number }>(text))
     .rows;
   const grouped = groupRandomAccessSamples(rows);
-  const rankings = rankSeries(grouped, compareCodeUnits, 0, 2).map((ranking) => ({
+  const knownSeries = [...new Set(rows.map((row) => row.series))];
+  const rankings = rankSeries(grouped, compareCodeUnits, 0, 2, knownSeries).map((ranking) => ({
     ...ranking,
-    totalRuntime: ranking.totalRuntime / ranking.measured,
+    totalRuntime:
+      ranking.measured > 0 ? ranking.totalRuntime / ranking.measured : ranking.totalRuntime,
   }));
   if (rankings.length === 0) {
     return null;

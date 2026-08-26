@@ -48,6 +48,7 @@ describe('SummaryCard', () => {
       rankings: [
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 9, total: 9 },
         { name: 'lance', score: 3, totalRuntime: 3_000_000, measured: 4, total: 9 },
+        { name: 'arrow-ipc', score: 4, totalRuntime: 0, measured: 0, total: 9 },
       ],
       explanation: 'e',
     });
@@ -55,6 +56,8 @@ describe('SummaryCard', () => {
     // a penalty-inflated score is never presented as a like-for-like number.
     expect(html).toContain('title="vortex"');
     expect(html).toContain('measured in 4 of 9 datasets');
+    expect(html).toContain('measured in 0 of 9 datasets');
+    expect(html).toContain('<span class="score-runtime">—</span>');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {

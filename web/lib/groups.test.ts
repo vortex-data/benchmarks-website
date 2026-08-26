@@ -160,19 +160,22 @@ describe.skipIf(!dockerAvailable())(
         throw new Error(`expected compressionSize summary, got ${summary.type}`);
       }
       expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
-        'vortex-file-compressed',
-        'parquet',
         'lance',
         'arrow-ipc',
+        'vortex-file-compressed',
+        'parquet',
       ]);
-      expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
-      expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
-      expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
-      expect(summary.rankings[3].ratio).toBeCloseTo(4.0, 6);
-      expect(summary.rankings[0].compressionRatio).toBeCloseTo(8.0, 6);
-      expect(summary.rankings[1].compressionRatio).toBeCloseTo(4.0, 6);
-      expect(summary.rankings[2].compressionRatio).toBeCloseTo(2.0, 6);
-      expect(summary.rankings[3].compressionRatio).toBeCloseTo(1.0, 6);
+      const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+      expect(byName.get('vortex-file-compressed')?.ratio).toBeCloseTo(0.5, 6);
+      expect(byName.get('parquet')?.ratio).toBeCloseTo(1.0, 6);
+      expect(byName.get('lance')?.ratio).toBeCloseTo(2.0, 6);
+      expect(byName.get('arrow-ipc')?.ratio).toBeCloseTo(4.0, 6);
+      expect(byName.get('vortex-file-compressed')?.compressionRatio).toBeCloseTo(8.0, 6);
+      expect(byName.get('parquet')?.compressionRatio).toBeCloseTo(4.0, 6);
+      // Lance and Arrow IPC use their newest file sizes and the newest logical
+      // Arrow size for the dataset, even though the commits do not match.
+      expect(byName.get('lance')?.compressionRatio).toBeCloseTo(52.0, 6);
+      expect(byName.get('arrow-ipc')?.compressionRatio).toBeCloseTo(26.0, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {
