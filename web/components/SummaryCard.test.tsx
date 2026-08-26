@@ -64,6 +64,32 @@ describe('SummaryCard', () => {
     expect(render({ type: 'randomAccess', title: 't', rankings: [], explanation: 'e' })).toBe('');
   });
 
+  it('uses two columns only for timing summaries with at least five results', () => {
+    const ranking = (index: number) => ({
+      name: `format-${index}`,
+      score: index + 1,
+      totalRuntime: 1_000,
+      measured: 1,
+      total: 1,
+    });
+    const fourResults = render({
+      type: 'randomAccess',
+      title: 'Random Access Performance',
+      rankings: Array.from({ length: 4 }, (_, index) => ranking(index)),
+      explanation: 'lower is better',
+    });
+    const fiveResults = render({
+      type: 'queryBenchmark',
+      title: 'Performance Summary',
+      rankings: Array.from({ length: 5 }, (_, index) => ranking(index)),
+      explanation: 'lower is better',
+    });
+
+    expect(fourResults).toContain('class="scores-list"');
+    expect(fourResults).not.toContain('scores-list--split');
+    expect(fiveResults).toContain('class="scores-list scores-list--split"');
+  });
+
   it('renders compression rankings with ratios and aggregate throughput', () => {
     const html = render({
       type: 'compression',

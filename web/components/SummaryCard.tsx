@@ -173,7 +173,11 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
       return (
         <section className="benchmark-scores-summary" aria-label={summary.title}>
           <h3 className="scores-title">{summary.title}</h3>
-          <div className="scores-list">
+          <div
+            className={
+              summary.rankings.length >= 5 ? 'scores-list scores-list--split' : 'scores-list'
+            }
+          >
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>

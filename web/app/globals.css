@@ -734,8 +734,12 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 .scores-list {
-  column-count: 2;
+  column-count: 1;
   column-gap: 1.25rem;
+}
+
+.scores-list--split {
+  column-count: 2;
 }
 
 .compression-scores {
