@@ -100,7 +100,7 @@ describe('SummaryCard', () => {
   it('renders Parquet size ranges and in-memory Arrow compression ratios', () => {
     const html = render({
       type: 'compressionSize',
-      title: 'Compression Ratio Summary',
+      title: 'Compression Size Summary',
       rankings: [
         {
           name: 'vortex-file-compressed',
@@ -126,7 +126,7 @@ describe('SummaryCard', () => {
       ],
       explanation: 'higher is better',
     });
-    expect(html).not.toContain('<h3 class="scores-title">Compression Ratio Summary</h3>');
+    expect(html).not.toContain('<h3 class="scores-title">Compression Size Summary</h3>');
     expect(html).toContain('class="compression-size-scores"');
     expect(html).toContain('Vs Arrow');
     expect(html).toContain('Vs Parquet');
@@ -134,14 +134,14 @@ describe('SummaryCard', () => {
     expect(html.match(/📊 Mean/g)).toHaveLength(1);
     expect(html).toContain('⬇️ Min');
     expect(html).toContain('⬆️ Max');
-    expect(html).toContain('class="score-value compression-ratio-value">8.25x</span>');
-    expect(html).toContain('class="score-runtime compression-ratio-value">0.55x</span>');
-    expect(html).toContain('class="score-value compression-ratio-value">0.45x</span>');
-    expect(html).toContain('class="score-runtime compression-ratio-value">1.55x</span>');
+    expect(html).toContain('class="score-value compression-size-value">8.25x</span>');
+    expect(html).toContain('class="score-runtime compression-size-value">0.55x</span>');
+    expect(html).toContain('class="score-value compression-size-value">0.45x</span>');
+    expect(html).toContain('class="score-runtime compression-size-value">1.55x</span>');
     expect(html.indexOf('8.25x')).toBeLessThan(html.indexOf('0.55x'));
     expect(html).toContain('parquet');
     expect(html).toContain('lance');
-    expect(html).toContain('class="score-value compression-ratio-value">—</span>');
+    expect(html).toContain('class="score-value compression-size-value">—</span>');
     expect(html).not.toContain('GB');
   });
 

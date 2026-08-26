@@ -26,7 +26,7 @@ function formatCompressionSizeRatio(value: number): string {
  * The per-group summary card.
  *
  * Every [`Summary`] variant renders a `.benchmark-scores-summary` with an
- * explanation footer. Compression and compression-ratio summaries use custom
+ * explanation footer. Compression and compression-size summaries use custom
  * panels for their paired metrics. The three timing families (query, random
  * access, vector search) share one ranked-list arm because they use the same
  * [`SeriesRanking`] shape. The card stays visible when its group is collapsed,
@@ -101,7 +101,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
           <div className="compression-size-scores">
             <div className="compression-size-panel compression-size-arrow-panel">
               <div className="compression-size-arrow-header">
-                <span className="compression-ratio-group">Vs Arrow</span>
+                <span className="compression-size-group">Vs Arrow</span>
               </div>
               <div className="compression-size-arrow-list">
                 {summary.rankings.map((item, idx) => (
@@ -110,7 +110,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                     <span className="score-series" title={displayFormat(item.name)}>
                       {displayFormat(item.name)}
                     </span>
-                    <span className="score-value compression-ratio-value">
+                    <span className="score-value compression-size-value">
                       {item.compressionRatio === null
                         ? '—'
                         : formatCompressionSizeRatio(item.compressionRatio)}
@@ -121,21 +121,21 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
             </div>
             <div className="compression-size-panel compression-size-parquet-panel">
               <div className="compression-size-parquet-header">
-                <span className="compression-ratio-group">Vs Parquet</span>
-                <span className="compression-ratio-heading">⬇️ Min</span>
-                <span className="compression-ratio-heading">📊 Mean</span>
-                <span className="compression-ratio-heading">⬆️ Max</span>
+                <span className="compression-size-group">Vs Parquet</span>
+                <span className="compression-size-heading">⬇️ Min</span>
+                <span className="compression-size-heading">📊 Mean</span>
+                <span className="compression-size-heading">⬆️ Max</span>
               </div>
               <div className="compression-size-parquet-list">
                 {summary.rankings.map((item) => (
                   <div className="compression-size-parquet-row" key={item.name}>
-                    <span className="score-runtime compression-ratio-value">
+                    <span className="score-runtime compression-size-value">
                       {formatCompressionSizeRatio(item.minRatio)}
                     </span>
-                    <span className="score-value compression-ratio-value">
+                    <span className="score-value compression-size-value">
                       {formatCompressionSizeRatio(item.ratio)}
                     </span>
-                    <span className="score-runtime compression-ratio-value">
+                    <span className="score-runtime compression-size-value">
                       {formatCompressionSizeRatio(item.maxRatio)}
                     </span>
                   </div>

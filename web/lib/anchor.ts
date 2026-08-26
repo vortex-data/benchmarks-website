@@ -8,13 +8,8 @@
  * API slugs from [`./slug`]: a fragment only has to match a section `id` on
  * the page, so it never needs the slug's machine-decodable base64 payload,
  * and the display name — stable and unique per page — makes a far friendlier
- * URL. The API keeps the opaque slug. Renamed groups can retain their public
- * fragment through [`LEGACY_GROUP_ANCHORS`].
+ * URL. The API keeps the opaque slug.
  */
-
-const LEGACY_GROUP_ANCHORS: Readonly<Record<string, string>> = {
-  'Compression Ratio': 'compression-size',
-};
 
 /**
  * Derive a URL anchor from a group display name: lowercase, every run of
@@ -23,10 +18,6 @@ const LEGACY_GROUP_ANCHORS: Readonly<Record<string, string>> = {
  * alphanumerics at all falls back to `group` so the anchor is never empty.
  */
 export function groupAnchor(name: string): string {
-  const legacyAnchor = LEGACY_GROUP_ANCHORS[name];
-  if (legacyAnchor !== undefined) {
-    return legacyAnchor;
-  }
   const anchor = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

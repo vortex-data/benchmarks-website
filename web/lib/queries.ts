@@ -682,7 +682,7 @@ export interface GroupChartsResponse {
 /** Canonical group order for the v4 site. Unknown groups sort last by name. */
 const GROUP_ORDER: readonly string[] = [
   'Compression',
-  'Compression Ratio',
+  'Compression Size',
   'Random Access',
   'Clickbench',
   'TPC-H (NVMe) (SF=1)',
@@ -974,7 +974,7 @@ async function collectCompressionTimeGroup(): Promise<Group[]> {
   return [{ name: 'Compression', slug: groupKeyToSlug({ k: 'CompressionTimeGroup' }), charts }];
 }
 
-/** The single `Compression Ratio` group, or `[]` if the fact table is empty. */
+/** The single `Compression Size` group, or `[]` if the fact table is empty. */
 async function collectCompressionSizeGroup(): Promise<Group[]> {
   const text = `
     SELECT dataset, dataset_variant
@@ -995,7 +995,7 @@ async function collectCompressionSizeGroup(): Promise<Group[]> {
     }),
   }));
   return [
-    { name: 'Compression Ratio', slug: groupKeyToSlug({ k: 'CompressionSizeGroup' }), charts },
+    { name: 'Compression Size', slug: groupKeyToSlug({ k: 'CompressionSizeGroup' }), charts },
   ];
 }
 

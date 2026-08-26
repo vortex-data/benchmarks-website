@@ -67,7 +67,7 @@ describe.skipIf(!dockerAvailable())(
       // `Random Access` is directly before Clickbench in GROUP_ORDER.
       expect(groups.map((g) => g.name)).toEqual([
         'Compression',
-        'Compression Ratio',
+        'Compression Size',
         'Random Access',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
@@ -153,7 +153,7 @@ describe.skipIf(!dockerAvailable())(
     it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow IPC', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
-        groups.find((g) => g.name === 'Compression Ratio')?.summary,
+        groups.find((g) => g.name === 'Compression Size')?.summary,
         'compression size summary',
       );
       if (summary.type !== 'compressionSize') {
@@ -226,7 +226,7 @@ describe.skipIf(!dockerAvailable())(
       const body = (await res.json()) as GroupsResponse;
       expect(body.groups.map((g) => g.name)).toEqual([
         'Compression',
-        'Compression Ratio',
+        'Compression Size',
         'Random Access',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',

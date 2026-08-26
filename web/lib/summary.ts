@@ -704,7 +704,7 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
   }
   return {
     type: 'compressionSize',
-    title: 'Compression Ratio Summary',
+    title: 'Compression Size Summary',
     rankings,
     explanation:
       'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet (lower is better)',

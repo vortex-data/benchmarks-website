@@ -788,13 +788,13 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   padding: 0.1rem 0 0.3rem;
 }
 
-.compression-size-arrow-header .compression-ratio-group,
-.compression-size-arrow-header .compression-ratio-heading {
+.compression-size-arrow-header .compression-size-group,
+.compression-size-arrow-header .compression-size-heading {
   grid-column: 3;
   text-align: center;
 }
 
-.compression-size-arrow-header .compression-ratio-group {
+.compression-size-arrow-header .compression-size-group {
   grid-row: 1;
 }
 
@@ -812,12 +812,12 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   column-gap: 1rem;
 }
 
-.compression-size-parquet-header .compression-ratio-group {
+.compression-size-parquet-header .compression-size-group {
   grid-column: 1 / 4;
   grid-row: 1;
 }
 
-.compression-size-parquet-header .compression-ratio-heading {
+.compression-size-parquet-header .compression-size-heading {
   grid-row: 2;
 }
 
@@ -832,7 +832,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   font-size: 0.875rem;
 }
 
-.compression-ratio-group {
+.compression-size-group {
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 600;
@@ -841,14 +841,14 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   text-transform: uppercase;
 }
 
-.compression-ratio-heading {
+.compression-size-heading {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 600;
   text-align: center;
 }
 
-.compression-ratio-value {
+.compression-size-value {
   text-align: center;
 }
 
