@@ -11,11 +11,11 @@ import type { SeriesRanking, Summary } from '@/lib/summary';
  * penalty. A partially measured series is ranked, not hidden, so the coverage
  * has to be legible somewhere.
  */
-function seriesTitle(item: SeriesRanking): string {
+function seriesTitle(item: SeriesRanking, coverageUnit: string): string {
   const label = displaySeriesLabel(item.name);
   return item.measured >= item.total
     ? label
-    : `${label} - measured in ${item.measured} of ${item.total} charts; the rest scored by the missing-series penalty`;
+    : `${label} - measured in ${item.measured} of ${item.total} ${coverageUnit}; the rest scored by the missing-series penalty`;
 }
 
 function formatCompressionSizeRatio(value: number): string {
@@ -25,13 +25,12 @@ function formatCompressionSizeRatio(value: number): string {
 /**
  * The per-group summary card.
  *
- * Every [`Summary`] variant renders the same `.benchmark-scores-summary` shape
- * (a `.scores-title`, a `.scores-list` of `.score-item` rows, and a
- * `.scores-explanation` footer); only the rank label, value, and optional
- * runtime change. The three timing families (query, random access, vector
- * search) share one arm because they share one [`SeriesRanking`] shape. The card stays visible whether or not the enclosing group is
- * expanded (the CSS only hides `.chart-grid` when the disclosure is closed), so
- * the at-a-glance rankings show without expanding the group.
+ * Every [`Summary`] variant renders a `.benchmark-scores-summary` with an
+ * explanation footer. Compression and compression-ratio summaries use custom
+ * panels for their paired metrics. The three timing families (query, random
+ * access, vector search) share one ranked-list arm because they use the same
+ * [`SeriesRanking`] shape. The card stays visible when its group is collapsed,
+ * so the at-a-glance rankings do not require chart expansion.
  *
  * Returns `null` when there is no summary or the variant has no content.
  */
@@ -154,6 +153,12 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
       if (summary.rankings.length === 0) {
         return null;
       }
+      const coverageUnit =
+        summary.type === 'randomAccess'
+          ? 'datasets'
+          : summary.type === 'vectorSearch'
+            ? 'thresholds'
+            : 'queries';
       return (
         <section className="benchmark-scores-summary" aria-label={summary.title}>
           <h3 className="scores-title">{summary.title}</h3>
@@ -161,7 +166,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={seriesTitle(item)}>
+                <span className="score-series" title={seriesTitle(item, coverageUnit)}>
                   {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">

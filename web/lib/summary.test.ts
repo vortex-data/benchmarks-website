@@ -140,7 +140,10 @@ describe('compression summaries', () => {
       expect(text).not.toContain("format = 'lance'");
     }
     expect(calls[0][0]).toContain('latest_uncompressed_sizes');
-    expect(calls[0][0]).toContain('s.uncompressed_bytes > 0');
+    for (const [text] of calls) {
+      expect(text).toContain("to_jsonb(s) ->> 'uncompressed_bytes'");
+      expect(text).not.toMatch(/\bs\.uncompressed_bytes\b/);
+    }
     expect(calls[0][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
     expect(calls[1][0]).toContain('latest_uncompressed_sizes');
     expect(calls[1][0]).toContain('latest_arrow_ipc');

@@ -558,6 +558,8 @@ async function collectCompressionSummary(): Promise<Summary | null> {
  * Each independently benchmarked format uses its own newest complete snapshot.
  * Every sample uses Parquet timing from the same commit. Aggregate throughput uses the newest
  * available decoded Arrow memory size for each dataset. The size commit does not need to match.
+ * The JSON field lookup returns `NULL` before migration 009 adds the column, so web deployment
+ * does not depend on migration deployment order.
  */
 async function compressionSamples(): Promise<
   Array<{
@@ -617,11 +619,11 @@ async function compressionSamples(): Promise<
     ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             s.uncompressed_bytes::float8 AS uncompressed_bytes
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
        WHERE s.format = $4
-         AND s.uncompressed_bytes > 0
+         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC
@@ -715,6 +717,8 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
  * and compares it with Parquet from the same commit. Arrow IPC uses its newest value for each
  * dataset and Parquet from the same commit. Compression ratios use the newest available decoded
  * Arrow memory size for each dataset. The size commit does not need to match.
+ * The JSON field lookup returns `NULL` before migration 009 adds the column, so web deployment
+ * does not depend on migration deployment order.
  */
 async function compressionSizeSamples(): Promise<
   Array<{
@@ -730,7 +734,7 @@ async function compressionSizeSamples(): Promise<
              c.timestamp AS ts,
              s.commit_sha AS commit_sha,
              s.value_bytes::float8 AS value_bytes,
-             s.uncompressed_bytes::float8 AS uncompressed_bytes,
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes,
              p.value_bytes::float8 AS parquet_bytes,
              s.dataset AS dataset,
              s.dataset_variant AS dataset_variant
@@ -783,11 +787,11 @@ async function compressionSizeSamples(): Promise<
     ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             s.uncompressed_bytes::float8 AS uncompressed_bytes
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
        WHERE s.format = $4
-         AND s.uncompressed_bytes > 0
+         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC

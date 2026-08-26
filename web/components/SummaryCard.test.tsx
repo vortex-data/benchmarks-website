@@ -54,7 +54,7 @@ describe('SummaryCard', () => {
     // The full-coverage series keeps a bare label; the partial one says so, so
     // a penalty-inflated score is never presented as a like-for-like number.
     expect(html).toContain('title="vortex"');
-    expect(html).toContain('measured in 4 of 9 charts');
+    expect(html).toContain('measured in 4 of 9 datasets');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
