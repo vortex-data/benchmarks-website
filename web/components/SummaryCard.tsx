@@ -11,23 +11,26 @@ import type { SeriesRanking, Summary } from '@/lib/summary';
  * penalty. A partially measured series is ranked, not hidden, so the coverage
  * has to be legible somewhere.
  */
-function seriesTitle(item: SeriesRanking): string {
+function seriesTitle(item: SeriesRanking, coverageUnit: string): string {
   const label = displaySeriesLabel(item.name);
   return item.measured >= item.total
     ? label
-    : `${label} - measured in ${item.measured} of ${item.total} charts; the rest scored by the missing-series penalty`;
+    : `${label} - measured in ${item.measured} of ${item.total} ${coverageUnit}; the rest scored by the missing-series penalty`;
+}
+
+function formatCompressionSizeRatio(value: number): string {
+  return `${Number(value.toPrecision(3))}x`;
 }
 
 /**
  * The per-group summary card.
  *
- * Every [`Summary`] variant renders the same `.benchmark-scores-summary` shape
- * (a `.scores-title`, a `.scores-list` of `.score-item` rows, and a
- * `.scores-explanation` footer); only the rank label, value, and optional
- * runtime change. The three timing families (query, random access, vector
- * search) share one arm because they share one [`SeriesRanking`] shape. The card stays visible whether or not the enclosing group is
- * expanded (the CSS only hides `.chart-grid` when the disclosure is closed), so
- * the at-a-glance rankings show without expanding the group.
+ * Every [`Summary`] variant renders a `.benchmark-scores-summary` with an
+ * explanation footer. Compression and compression-size summaries use custom
+ * panels for their paired metrics. The three timing families (query, random
+ * access, vector search) share one ranked-list arm because they use the same
+ * [`SeriesRanking`] shape. The card stays visible when its group is collapsed,
+ * so the at-a-glance rankings do not require chart expansion.
  *
  * Returns `null` when there is no summary or the variant has no content.
  */
@@ -42,12 +45,12 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
       }
       const operationPanels = [
         { operation: 'encode' as const, title: summary.title },
-        { operation: 'decode' as const, title: 'Decompression Throughput' },
+        { operation: 'decode' as const, title: 'Scan Throughput' },
       ];
       return (
         <section
           className="benchmark-scores-summary benchmark-scores-summary--compression"
-          aria-label={`${summary.title} and decompression throughput`}
+          aria-label={`${summary.title} and Scan Throughput`}
         >
           <div className="compression-scores">
             {operationPanels.map((panel) => {
@@ -71,6 +74,11 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                           </span>
                           <span className="score-metrics">
                             <span className="score-value">{item.ratio.toFixed(2)}x</span>
+                            {item.throughputGbS !== undefined && (
+                              <span className="score-runtime">
+                                {item.throughputGbS.toFixed(2)} GB/s
+                              </span>
+                            )}
                           </span>
                         </div>
                       );
@@ -84,48 +92,103 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
         </section>
       );
     }
-    case 'compressionSize':
+    case 'compressionSize': {
       if (summary.rankings.length === 0) {
         return null;
       }
       return (
         <section className="benchmark-scores-summary" aria-label={summary.title}>
-          <h3 className="scores-title">{summary.title}</h3>
-          <div className="scores-list">
-            {summary.rankings.map((item, idx) => (
-              <div className="score-item" key={item.name}>
-                <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={displayFormat(item.name)}>
-                  {displayFormat(item.name)}
-                </span>
-                <span className="score-metrics">
-                  <span className="score-value">{item.ratio.toFixed(2)}x</span>
-                </span>
+          <div className="compression-size-scores">
+            <div className="compression-size-panel compression-size-arrow-panel">
+              <div className="compression-size-arrow-header">
+                <span className="compression-size-group">Vs Arrow</span>
               </div>
-            ))}
+              <div className="compression-size-arrow-list">
+                {summary.rankings.map((item, idx) => {
+                  const label = displayFormat(item.name);
+                  return (
+                    <div className="score-item compression-size-arrow-row" key={item.name}>
+                      <span className="score-rank">#{idx + 1}</span>
+                      <span className="score-series" title={label}>
+                        {label}
+                      </span>
+                      <span className="score-value compression-size-value">
+                        {item.compressionRatio === null
+                          ? '—'
+                          : formatCompressionSizeRatio(item.compressionRatio)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="compression-size-panel compression-size-parquet-panel">
+              <div className="compression-size-parquet-header">
+                <span className="compression-size-group">Vs Parquet</span>
+                <span className="compression-size-heading">⬇️ Min</span>
+                <span className="compression-size-heading">📊 Mean</span>
+                <span className="compression-size-heading">⬆️ Max</span>
+              </div>
+              <div className="compression-size-parquet-list">
+                {summary.rankings.map((item) => {
+                  const minRatio = formatCompressionSizeRatio(item.minRatio);
+                  const meanRatio = formatCompressionSizeRatio(item.ratio);
+                  const maxRatio = formatCompressionSizeRatio(item.maxRatio);
+                  return (
+                    <div className="compression-size-parquet-row" key={item.name}>
+                      <span className="visually-hidden">
+                        {`${displayFormat(item.name)}: minimum ${minRatio}, mean ${meanRatio}, maximum ${maxRatio}`}
+                      </span>
+                      <span aria-hidden="true" className="score-runtime compression-size-value">
+                        {minRatio}
+                      </span>
+                      <span aria-hidden="true" className="score-value compression-size-value">
+                        {meanRatio}
+                      </span>
+                      <span aria-hidden="true" className="score-runtime compression-size-value">
+                        {maxRatio}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           <div className="scores-explanation">{summary.explanation}</div>
         </section>
       );
+    }
     case 'queryBenchmark':
     case 'randomAccess':
     case 'vectorSearch':
       if (summary.rankings.length === 0) {
         return null;
       }
+      const coverageUnit =
+        summary.type === 'randomAccess'
+          ? 'datasets'
+          : summary.type === 'vectorSearch'
+            ? 'thresholds'
+            : 'queries';
       return (
         <section className="benchmark-scores-summary" aria-label={summary.title}>
           <h3 className="scores-title">{summary.title}</h3>
-          <div className="scores-list">
+          <div
+            className={
+              summary.rankings.length >= 5 ? 'scores-list scores-list--split' : 'scores-list'
+            }
+          >
             {summary.rankings.map((item, idx) => (
               <div className="score-item" key={item.name}>
                 <span className="score-rank">#{idx + 1}</span>
-                <span className="score-series" title={seriesTitle(item)}>
+                <span className="score-series" title={seriesTitle(item, coverageUnit)}>
                   {displaySeriesLabel(item.name)}
                 </span>
                 <span className="score-metrics">
                   <span className="score-value">{item.score.toFixed(2)}x</span>
-                  <span className="score-runtime">{formatTimeNs(item.totalRuntime)}</span>
+                  <span className="score-runtime">
+                    {item.measured > 0 ? formatTimeNs(item.totalRuntime) : '—'}
+                  </span>
                 </span>
               </div>
             ))}

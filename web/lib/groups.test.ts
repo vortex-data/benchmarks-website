@@ -86,14 +86,17 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.title).toBe('Random Access Performance');
       expect(summary.rankings[0].name).toBe('vortex-file-compressed');
       expect(summary.rankings[1].name).toBe('parquet');
+      expect(summary.rankings[2].name).toBe('arrow-ipc');
       // The fixture's newest commit has vortex=100_500 and parquet=201_000 on
-      // the one `taxi` chart, so the scores are the damped
-      // `(10 + value) / (10 + best)` ratios and both series cover every chart.
+      // the one `taxi` chart. Arrow IPC is 301_500 on the same chart.
       expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
       expect(summary.rankings[1].score).toBeCloseTo(1.9999005, 6);
+      expect(summary.rankings[2].score).toBeCloseTo(2.999801, 6);
       expect(summary.rankings[0].totalRuntime).toBeCloseTo(100_500, 6);
       expect(summary.rankings[1].totalRuntime).toBeCloseTo(201_000, 6);
+      expect(summary.rankings[2].totalRuntime).toBeCloseTo(301_500, 6);
       expect(summary.rankings.map((r) => [r.measured, r.total])).toEqual([
+        [1, 1],
         [1, 1],
         [1, 1],
       ]);
@@ -133,12 +136,21 @@ describe.skipIf(!dockerAvailable())(
       expect(byKey.get('decode:vortex-file-compressed')?.ratio).toBeCloseTo(2.0, 6);
       expect(byKey.get('decode:parquet')?.ratio).toBeCloseTo(1.0, 6);
       expect(byKey.get('decode:lance')?.ratio).toBeCloseTo(0.5, 6);
-      const json = JSON.stringify(summary);
-      expect(json).not.toContain('"throughputGbS"');
-      expect(json).toContain('"rankings"');
+      expect(byKey.get('encode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
+        832_000 / 109_000,
+        6,
+      );
+      expect(byKey.get('encode:parquet')?.throughputGbS).toBeCloseTo(832_000 / 218_000, 6);
+      expect(byKey.get('encode:lance')?.throughputGbS).toBeCloseTo(832_000 / 36_000, 6);
+      expect(byKey.get('decode:vortex-file-compressed')?.throughputGbS).toBeCloseTo(
+        832_000 / 105_000,
+        6,
+      );
+      expect(byKey.get('decode:parquet')?.throughputGbS).toBeCloseTo(832_000 / 210_000, 6);
+      expect(byKey.get('decode:lance')?.throughputGbS).toBeCloseTo(832_000 / 20_000, 6);
     });
 
-    it('computes compression-size rankings for Vortex, Parquet, and Lance', async () => {
+    it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow IPC', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
         groups.find((g) => g.name === 'Compression Size')?.summary,
@@ -148,13 +160,22 @@ describe.skipIf(!dockerAvailable())(
         throw new Error(`expected compressionSize summary, got ${summary.type}`);
       }
       expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+        'lance',
+        'arrow-ipc',
         'vortex-file-compressed',
         'parquet',
-        'lance',
       ]);
-      expect(summary.rankings[0].ratio).toBeCloseTo(0.5, 6);
-      expect(summary.rankings[1].ratio).toBeCloseTo(1.0, 6);
-      expect(summary.rankings[2].ratio).toBeCloseTo(2.0, 6);
+      const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+      expect(byName.get('vortex-file-compressed')?.ratio).toBeCloseTo(0.5, 6);
+      expect(byName.get('parquet')?.ratio).toBeCloseTo(1.0, 6);
+      expect(byName.get('lance')?.ratio).toBeCloseTo(2.0, 6);
+      expect(byName.get('arrow-ipc')?.ratio).toBeCloseTo(4.0, 6);
+      expect(byName.get('vortex-file-compressed')?.compressionRatio).toBeCloseTo(8.0, 6);
+      expect(byName.get('parquet')?.compressionRatio).toBeCloseTo(4.0, 6);
+      // Lance and Arrow IPC use their newest file sizes and the newest logical
+      // Arrow size for the dataset, even though the commits do not match.
+      expect(byName.get('lance')?.compressionRatio).toBeCloseTo(52.0, 6);
+      expect(byName.get('arrow-ipc')?.compressionRatio).toBeCloseTo(26.0, 6);
     });
 
     it('computes the query-benchmark summary with v2 missing-series penalty', async () => {
@@ -349,12 +370,14 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     vortexBytes: number,
     parquetBytes: number,
   ): Promise<void> {
+    const uncompressedBytes = parquetBytes * 4;
     await getPool().query(
       `INSERT INTO compression_sizes
-           (measurement_id, commit_sha, dataset, dataset_variant, format, value_bytes)
-         VALUES ($1, $2, 'tpch-lineitem', NULL, 'vortex-file-compressed', $4),
-                ($3, $2, 'tpch-lineitem', NULL, 'parquet',                $5)`,
-      [nextId(), sha, nextId(), vortexBytes, parquetBytes],
+           (measurement_id, commit_sha, dataset, dataset_variant, format,
+            value_bytes, uncompressed_bytes)
+         VALUES ($1, $2, 'tpch-lineitem', NULL, 'vortex-file-compressed', $4, $6),
+                ($3, $2, 'tpch-lineitem', NULL, 'parquet',                $5, $6)`,
+      [nextId(), sha, nextId(), vortexBytes, parquetBytes, uncompressedBytes],
     );
   }
 
@@ -441,7 +464,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     // vortex: cbrt(1100000/350000 * 1 * 1); lance: cbrt(1 * 3 * 3).
     expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 5);
     expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 5);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
   });
 
   it('keeps an intermittently benchmarked format at its own latest run', async () => {

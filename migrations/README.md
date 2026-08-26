@@ -69,6 +69,8 @@ lexicographic order, which equals numeric order under this convention.
 - `008_migrator_ownership.sql` — transfers the ledger and data tables to
   `migrator`. Apply it once as the RDS master. Later migrations can alter
   existing objects through the schema deployment workflow.
+- `009_compression_uncompressed_size.sql` — adds the nullable Arrow memory size
+  used for compression-ratio and logical-throughput estimates. Historical rows remain unchanged.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
 PR-1.4, `004` in PR-2.1, `005` in the Phase-4 operator-gate work (the v4

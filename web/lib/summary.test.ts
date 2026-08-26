@@ -24,10 +24,20 @@ describe('compression summaries', () => {
   it('uses geometric mean size ratios', async () => {
     query.mockResolvedValueOnce({
       rows: [
-        { format: 'vortex-file-compressed', valueBytes: 1, parquetBytes: 4 },
-        { format: 'vortex-file-compressed', valueBytes: 900, parquetBytes: 100 },
-        { format: 'parquet', valueBytes: 4, parquetBytes: 4 },
-        { format: 'parquet', valueBytes: 100, parquetBytes: 100 },
+        {
+          format: 'vortex-file-compressed',
+          valueBytes: 1,
+          parquetBytes: 4,
+          uncompressedBytes: 16,
+        },
+        {
+          format: 'vortex-file-compressed',
+          valueBytes: 900,
+          parquetBytes: 100,
+          uncompressedBytes: 3_600,
+        },
+        { format: 'parquet', valueBytes: 4, parquetBytes: 4, uncompressedBytes: 16 },
+        { format: 'parquet', valueBytes: 100, parquetBytes: 100, uncompressedBytes: null },
       ],
     });
 
@@ -38,25 +48,120 @@ describe('compression summaries', () => {
     const byFormat = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
 
     // sqrt((1 / 4) * (900 / 100)) is 1.5.
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+      'vortex-file-compressed',
+      'parquet',
+    ]);
     expect(byFormat.get('vortex-file-compressed')?.ratio).toBeCloseTo(1.5, 6);
     expect(byFormat.get('parquet')?.ratio).toBeCloseTo(1, 6);
+    expect(byFormat.get('vortex-file-compressed')?.minRatio).toBeCloseTo(0.25, 6);
+    expect(byFormat.get('vortex-file-compressed')?.maxRatio).toBeCloseTo(9, 6);
+    expect(byFormat.get('vortex-file-compressed')?.compressionRatio).toBeCloseTo(8, 6);
+    expect(byFormat.get('parquet')?.minRatio).toBeCloseTo(1, 6);
+    expect(byFormat.get('parquet')?.maxRatio).toBeCloseTo(1, 6);
+    expect(byFormat.get('parquet')?.compressionRatio).toBeCloseTo(4, 6);
+    expect(summary.explanation).toBe(
+      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet-zstd (lower is better)',
+    );
   });
 
-  it('applies one extensible snapshot policy to timings and sizes', async () => {
+  it('uses available Arrow memory sizes for aggregate throughput', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          format: 'vortex-file-compressed',
+          op: 'encode',
+          valueNs: 100,
+          parquetNs: 200,
+          uncompressedBytes: 1_000,
+        },
+        {
+          format: 'vortex-file-compressed',
+          op: 'encode',
+          valueNs: 300,
+          parquetNs: 300,
+          uncompressedBytes: 2_000,
+        },
+        {
+          format: 'vortex-file-compressed',
+          op: 'encode',
+          valueNs: 500,
+          parquetNs: 250,
+          uncompressedBytes: null,
+        },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'CompressionTimeGroup' });
+    if (summary === null || summary.type !== 'compression') {
+      throw new Error('expected a compression summary');
+    }
+    const ranking = summary.rankings[0];
+
+    expect(ranking.ratio).toBeCloseTo(1, 6);
+    expect(ranking.throughputGbS).toBeCloseTo(7.5, 6);
+  });
+
+  it('falls back to Parquet mean ranking until every format has an Arrow ratio', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          format: 'vortex-file-compressed',
+          valueBytes: 200,
+          parquetBytes: 100,
+          uncompressedBytes: 2_000,
+        },
+        {
+          format: 'parquet',
+          valueBytes: 100,
+          parquetBytes: 100,
+          uncompressedBytes: 500,
+        },
+        {
+          format: 'lance',
+          valueBytes: 300,
+          parquetBytes: 100,
+          uncompressedBytes: null,
+        },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'CompressionSizeGroup' });
+    if (summary === null || summary.type !== 'compressionSize') {
+      throw new Error('expected a compressionSize summary');
+    }
+
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+      'parquet',
+      'vortex-file-compressed',
+      'lance',
+    ]);
+  });
+
+  it('applies extensible snapshot policies to timings and sizes', async () => {
     query.mockResolvedValue({ rows: [] });
 
     await collectGroupSummary({ k: 'CompressionTimeGroup' });
     await collectGroupSummary({ k: 'CompressionSizeGroup' });
 
     expect(query).toHaveBeenCalledTimes(2);
-    const expectedParams = [
+    const timingParams = [
       ['vortex-file-compressed', 'parquet', 'lance'],
       ['vortex-file-compressed', 'parquet'],
       'vortex-file-compressed',
       'parquet',
     ];
-    for (const [text, params] of query.mock.calls as Array<[string, unknown[]]>) {
-      expect(params).toEqual(expectedParams);
+    const sizeParams = [
+      ['vortex-file-compressed', 'parquet', 'lance', 'arrow-ipc'],
+      ['vortex-file-compressed', 'parquet'],
+      'vortex-file-compressed',
+      'parquet',
+      'arrow-ipc',
+    ];
+    const calls = query.mock.calls as Array<[string, unknown[]]>;
+    expect(calls[0][1]).toEqual(timingParams);
+    expect(calls[1][1]).toEqual(sizeParams);
+    for (const [text] of calls) {
       expect(text).toContain('format = ANY($1::text[])');
       expect(text).toContain('format = ANY($2::text[])');
       expect(text).toContain('snapshot_policy');
@@ -70,6 +175,19 @@ describe('compression summaries', () => {
       // another hard-coded format branch or a per-dataset history scan.
       expect(text).not.toContain("format = 'lance'");
     }
+    expect(calls[0][0]).toContain('latest_uncompressed_sizes');
+    for (const [text] of calls) {
+      expect(text).toContain("to_jsonb(s) ->> 'uncompressed_bytes'");
+      expect(text).not.toMatch(/\bs\.uncompressed_bytes\b/);
+    }
+    expect(calls[0][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain('latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain('latest_arrow_ipc');
+    expect(calls[1][0]).toContain('selected_with_arrow_ipc');
+    expect(calls[1][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain(
+      'COALESCE(uncompressed.uncompressed_bytes, selected.uncompressed_bytes)',
+    );
   });
 });
 
@@ -78,7 +196,7 @@ describe('timing summaries (shared ranking model)', () => {
     query.mockReset();
   });
 
-  it('ranks random access across every chart, not the first one', async () => {
+  it('sums random-access charts by dataset before ranking', async () => {
     // The regression: the old summary published one chart's raw times under the
     // group-wide title. `lance` wins `feature-vectors/correlated` outright and
     // loses the other two charts 3x; the group ranking must reflect all three.
@@ -100,9 +218,47 @@ describe('timing summaries (shared ranking model)', () => {
     expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
     expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 6);
     expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 6);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
     expect(summary.rankings.map((r) => r.measured)).toEqual([3, 3]);
     expect(summary.rankings.map((r) => r.total)).toEqual([3, 3]);
+  });
+
+  it('combines correlated, uniform, and legacy taxi charts into dataset totals', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'lance', value: 100_000 },
+        { bucket: 'feature-vectors/correlated', series: 'vortex', value: 1_000_000 },
+        { bucket: 'feature-vectors/uniform', series: 'lance', value: 10_000_000 },
+        { bucket: 'feature-vectors/uniform', series: 'vortex', value: 1_000_000 },
+        { bucket: 'taxi', series: 'lance', value: 200_000 },
+        { bucket: 'taxi', series: 'vortex', value: 100_000 },
+        { bucket: 'taxi/correlated', series: 'lance', value: 300_000 },
+        { bucket: 'taxi/correlated', series: 'vortex', value: 100_000 },
+        { bucket: 'taxi/uniform', series: 'lance', value: 500_000 },
+        { bucket: 'taxi/uniform', series: 'vortex', value: 100_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['vortex', 'lance']);
+    expect(byName.get('vortex')?.score).toBeCloseTo(1, 6);
+    expect(byName.get('lance')?.score).toBeCloseTo(
+      Math.sqrt((10_100_010 / 2_000_010) * (1_000_010 / 300_010)),
+      6,
+    );
+    expect(byName.get('vortex')?.totalRuntime).toBeCloseTo(2_300_000 / 2, 6);
+    expect(byName.get('lance')?.totalRuntime).toBeCloseTo(11_100_000 / 2, 6);
+    expect(summary.rankings.map((ranking) => [ranking.measured, ranking.total])).toEqual([
+      [2, 2],
+      [2, 2],
+    ]);
+    expect(summary.explanation).toBe(
+      'Geomean of take time ratio to fastest across every dataset (lower is better)',
+    );
   });
 
   it('reads each random-access format at its own newest run', async () => {
@@ -139,6 +295,28 @@ describe('timing summaries (shared ranking model)', () => {
     // `totalRuntime` reports measured time only; the penalty never enters it.
     expect(byName.get('lance')?.totalRuntime).toBeCloseTo(100_000, 6);
     expect(byName.get('vortex')?.measured).toBe(2);
+  });
+
+  it('keeps a format that has no complete random-access dataset', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'partial', value: 100_000 },
+        { bucket: 'feature-vectors/correlated', series: 'complete', value: 200_000 },
+        { bucket: 'feature-vectors/uniform', series: 'complete', value: 300_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['complete', 'partial']);
+    expect(byName.get('partial')?.score).toBeCloseTo(2, 6);
+    expect(byName.get('partial')?.measured).toBe(0);
+    expect(byName.get('partial')?.total).toBe(1);
+    expect(byName.get('partial')?.totalRuntime).toBe(0);
   });
 
   it('does not reward a series for skipping a slow bucket', async () => {

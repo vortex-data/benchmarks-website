@@ -107,7 +107,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
     // (vector_search_runs) must NOT leak in as a format.
     expect(universe).toEqual({
       engines: ['datafusion', 'duckdb'],
-      formats: ['lance', 'parquet', 'vortex-file-compressed'],
+      formats: ['arrow-ipc', 'lance', 'parquet', 'vortex-file-compressed'],
     });
   });
 
@@ -162,6 +162,7 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
       parseCommitWindow(null),
     );
     expect(payload?.series).toEqual({
+      'arrow-ipc': [32_000, null, null],
       lance: [16_000, null, null],
       parquet: [8_000, 108_000, 208_000],
       'vortex-file-compressed': [4_000, 54_000, 104_000],

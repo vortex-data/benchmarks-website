@@ -8,6 +8,7 @@ import { groupAnchor, groupAnchors } from '@/lib/anchor';
 describe('groupAnchor', () => {
   it('slugifies real group display names into readable anchors', () => {
     expect(groupAnchor('Compression')).toBe('compression');
+    expect(groupAnchor('Compression Size')).toBe('compression-size');
     expect(groupAnchor('Random Access')).toBe('random-access');
     expect(groupAnchor('TPC-H (NVMe) (SF=1)')).toBe('tpc-h-nvme-sf-1');
     expect(groupAnchor('TPC-DS (NVMe) (SF=1)')).toBe('tpc-ds-nvme-sf-1');

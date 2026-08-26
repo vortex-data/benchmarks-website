@@ -175,6 +175,7 @@ const FORMAT: Record<string, SeriesStyle> = {
   duckdb: { color: '#eab308', width: NATIVE_WIDTH }, // gold
   lance: { color: '#94a3b8', width: MUTED_WIDTH }, // slate
   arrow: { color: '#f97316', width: MUTED_WIDTH }, // orange
+  'arrow-ipc': { color: '#f97316', width: MUTED_WIDTH }, // orange
 };
 
 /** The catch-all style for an otherwise-unknown series. */
@@ -221,6 +222,7 @@ const FORMAT_ORDER: Record<string, number> = {
   duckdb: 3,
   lance: 4,
   arrow: 5,
+  'arrow-ipc': 5,
 };
 const FORMAT_ORDER_FALLBACK = 6;
 

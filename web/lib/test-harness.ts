@@ -164,19 +164,25 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
       ['parquet', 8_000 + 2 * bias],
     ];
     if (i === 0) {
+      // Arrow IPC is not present in every run. The summary must use its latest
+      // per-dataset value without tying it to the current Vortex snapshot.
+      compSizes.push(['arrow-ipc', 32_000]);
       compSizes.push(['lance', 16_000]);
     }
+    const uncompressedBytes = 32_000 + 8 * bias;
     for (const [format, valueBytes] of compSizes) {
       await pool.query(
         `INSERT INTO compression_sizes
-           (measurement_id, commit_sha, dataset, dataset_variant, format, value_bytes)
-         VALUES ($1, $2, 'tpch-lineitem', NULL, $3, $4)`,
-        [mid(), sha, format, valueBytes],
+           (measurement_id, commit_sha, dataset, dataset_variant, format,
+            value_bytes, uncompressed_bytes)
+         VALUES ($1, $2, 'tpch-lineitem', NULL, $3, $4, $5)`,
+        [mid(), sha, format, valueBytes, uncompressedBytes],
       );
     }
     const randomAccess: ReadonlyArray<readonly [string, number]> = [
       ['vortex-file-compressed', 500 + bias],
       ['parquet', 1_000 + 2 * bias],
+      ['arrow-ipc', 1_500 + 3 * bias],
     ];
     for (const [format, valueNs] of randomAccess) {
       await pool.query(

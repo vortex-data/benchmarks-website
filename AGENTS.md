@@ -61,8 +61,10 @@ rules below are the parts that were worth keeping.
   the producer emits `dataset` as `{dataset}/{pattern}`, so the group holds ~nine charts, and the
   old summary published the alphabetically first chart's raw times under the group-wide title
   "Random Access Performance" — reporting `lance` at 352us when it is over 1ms on most of the
-  other charts. Rank across every bucket in the group, impute the missing-series penalty where a
-  series skipped one, and report `measured`/`total` so a partially covered series is legible.
+  other charts. Sum chart medians by dataset, then rank the dataset totals. Include the legacy taxi
+  chart in the taxi total. Apply a penalty when a series lacks one dataset total. Report dataset
+  coverage through `measured`/`total`. The secondary runtime is the arithmetic mean of complete
+  dataset totals.
 - **Don't write a server-side classifier for live ingest.** The emitter produces structured
   records directly. Classifying loose name strings at read time was the v2-era weakness every
   later generation existed to escape; it belongs nowhere in the live pipeline.

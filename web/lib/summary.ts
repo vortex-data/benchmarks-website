@@ -41,15 +41,15 @@ import { compareCodeUnits } from './families';
 import type { GroupKey } from './slug';
 
 /**
- * Freshness buckets shared by the compression-time and compression-size summaries.
+ * Freshness buckets for compression-time and compression-size summaries.
  *
- * Formats benchmarked with Vortex use its newest shared snapshot. Add another
- * intermittently benchmarked format to `INDEPENDENT_SNAPSHOT`; both summaries
- * will use that format's newest complete snapshot and compare it with Parquet
- * from the same commit.
+ * Formats benchmarked with Vortex use its newest shared snapshot. Compression size also includes
+ * Arrow IPC as an on-disk format. Independently benchmarked formats use their newest complete
+ * snapshot and Parquet data from the same commit.
  */
 const COMPRESSION_SHARED_SNAPSHOT_FORMATS = ['vortex-file-compressed', 'parquet'];
 const COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS = ['lance'];
+const ARROW_IPC_FORMAT = 'arrow-ipc';
 
 const COMPRESSION_SNAPSHOT_ANCHOR = 'vortex-file-compressed';
 const COMPRESSION_BASELINE = 'parquet';
@@ -63,13 +63,27 @@ function compressionSummaryQueryParams(): [string[], string[], string, string] {
   ];
 }
 
+function compressionSizeSummaryQueryParams(): [string[], string[], string, string, string] {
+  return [
+    [
+      ...COMPRESSION_SHARED_SNAPSHOT_FORMATS,
+      ...COMPRESSION_INDEPENDENT_SNAPSHOT_FORMATS,
+      ARROW_IPC_FORMAT,
+    ],
+    COMPRESSION_SHARED_SNAPSHOT_FORMATS,
+    COMPRESSION_SNAPSHOT_ANCHOR,
+    COMPRESSION_BASELINE,
+    ARROW_IPC_FORMAT,
+  ];
+}
+
 /**
  * One row of a timing-benchmark ranking (query, random access, vector search).
  *
  * `score` is the headline number: the geomean of this series' time ratio to
  * the fastest series, taken over every bucket in the group (queries for a
- * query suite, `dataset/pattern` charts for random access, thresholds for
- * vector search). A single bucket's absolute time is deliberately NOT the
+ * query suite, dataset totals for random access, thresholds for vector
+ * search). A single bucket's absolute time is deliberately NOT the
  * headline -- a summary that quoted one arbitrary chart's numbers reads as a
  * claim about the whole group and is wrong whenever the group's charts
  * disagree.
@@ -79,7 +93,7 @@ export interface SeriesRanking {
   name: string;
   /** Geomean ratio to the fastest series per bucket. Lower is better. */
   score: number;
-  /** Sum of the latest times over the buckets this series was measured in. */
+  /** Secondary runtime: a sum, except for random access where this is a dataset mean. */
   totalRuntime: number;
   /** Buckets this series has a measurement for. */
   measured: number;
@@ -98,14 +112,22 @@ export interface CompressionRanking {
   operation: 'encode' | 'decode';
   /** Geomean throughput ratio to Parquet for shared datasets. */
   ratio: number;
+  /** Aggregate logical throughput in decimal gigabytes per second. */
+  throughputGbS?: number;
 }
 
 /** One format in the compression size summary. */
 export interface CompressionSizeRanking {
   /** On-disk format. */
   name: string;
+  /** Minimum size ratio to Parquet across datasets. */
+  minRatio: number;
   /** Geomean size ratio to Parquet for shared datasets. */
   ratio: number;
+  /** Maximum size ratio to Parquet across datasets. */
+  maxRatio: number;
+  /** Geomean ratio of Arrow memory size to the format size. */
+  compressionRatio: number | null;
 }
 
 /**
@@ -228,9 +250,13 @@ function rankSeries<K>(
   compareBuckets: (a: K, b: K) => number,
   penaltyFloorNs: number,
   missingRatioFloor: number,
+  knownSeries: readonly string[] = [],
 ): SeriesRanking[] {
   const buckets = new Map<string, K>();
   const valuesBySeries = new Map<string, Map<string, number>>();
+  for (const series of knownSeries) {
+    valuesBySeries.set(series, new Map<string, number>());
+  }
   for (const sample of samples) {
     if (!(sample.value > 0) || !Number.isFinite(sample.value)) {
       continue;
@@ -283,10 +309,8 @@ function rankSeries<K>(
         maxRuntime = value;
       }
     }
-    if (!Number.isFinite(maxRuntime)) {
-      continue;
-    }
-    const penalty = Math.max(maxRuntime, penaltyFloorNs) * 2;
+    const penaltyBase = Number.isFinite(maxRuntime) ? maxRuntime : penaltyFloorNs;
+    const penalty = Math.max(penaltyBase, penaltyFloorNs) * 2;
     const ratios: number[] = [];
     for (const [bucketKey] of sortedBuckets) {
       const base = bestByBucket.get(bucketKey);
@@ -316,7 +340,59 @@ function rankSeries<K>(
 }
 
 /**
- * The random-access rollup, over every `(dataset, pattern)` chart in the group.
+ * Sum random-access chart medians into one bucket per dataset.
+ *
+ * Correlated and uniform charts contribute to one dataset total. The legacy
+ * `taxi` chart contributes to the same total as `taxi/correlated` and
+ * `taxi/uniform`. A format must cover every chart in a dataset before that
+ * dataset contributes to its score. Coverage describes complete datasets.
+ */
+function groupRandomAccessSamples(
+  samples: readonly SeriesSample<string>[],
+): SeriesSample<string>[] {
+  const chartsByDataset = new Map<string, Set<string>>();
+  const groupsBySeries = new Map<string, Map<string, { value: number; charts: Set<string> }>>();
+
+  for (const sample of samples) {
+    if (!(sample.value > 0) || !Number.isFinite(sample.value)) {
+      continue;
+    }
+    const separator = sample.bucket.indexOf('/');
+    const dataset = separator === -1 ? sample.bucket : sample.bucket.slice(0, separator);
+    let charts = chartsByDataset.get(dataset);
+    if (charts === undefined) {
+      charts = new Set<string>();
+      chartsByDataset.set(dataset, charts);
+    }
+    charts.add(sample.bucket);
+
+    let seriesGroups = groupsBySeries.get(sample.series);
+    if (seriesGroups === undefined) {
+      seriesGroups = new Map<string, { value: number; charts: Set<string> }>();
+      groupsBySeries.set(sample.series, seriesGroups);
+    }
+    let group = seriesGroups.get(dataset);
+    if (group === undefined) {
+      group = { value: 0, charts: new Set<string>() };
+      seriesGroups.set(dataset, group);
+    }
+    group.value += sample.value;
+    group.charts.add(sample.bucket);
+  }
+
+  const grouped: SeriesSample<string>[] = [];
+  for (const [series, seriesGroups] of groupsBySeries) {
+    for (const [dataset, group] of seriesGroups) {
+      if (group.charts.size === chartsByDataset.get(dataset)?.size) {
+        grouped.push({ series, bucket: dataset, value: group.value });
+      }
+    }
+  }
+  return grouped;
+}
+
+/**
+ * The random-access rollup, over one summed bucket per dataset in the group.
  *
  * Two things this deliberately does NOT do, both of which the previous
  * implementation did:
@@ -326,8 +402,8 @@ function rankSeries<K>(
  *    alphabetically first `dataset/pattern` -- then published its raw times
  *    under the group-wide title "Random Access Performance". The producer
  *    (`benchmarks/random-access-bench`) emits `dataset` as `{dataset}/{pattern}`
- *    plus the legacy bare `taxi`, so that was one of nine charts speaking for
- *    all nine.
+ *    plus the legacy bare `taxi`. Correlated and uniform medians are summed
+ *    within each dataset. The bare `taxi` median joins the other taxi medians.
  *  - It does not pin every format to one global latest commit. `format` is
  *    ranked from its own newest run per chart, the same freshness policy the
  *    compression summaries apply to intermittently benchmarked formats such as
@@ -350,7 +426,13 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
   `;
   const rows = (await getPool().query<{ bucket: string; series: string; value: number }>(text))
     .rows;
-  const rankings = rankSeries(rows, compareCodeUnits, 0, 2);
+  const grouped = groupRandomAccessSamples(rows);
+  const knownSeries = [...new Set(rows.map((row) => row.series))];
+  const rankings = rankSeries(grouped, compareCodeUnits, 0, 2, knownSeries).map((ranking) => ({
+    ...ranking,
+    totalRuntime:
+      ranking.measured > 0 ? ranking.totalRuntime / ranking.measured : ranking.totalRuntime,
+  }));
   if (rankings.length === 0) {
     return null;
   }
@@ -358,7 +440,7 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
     type: 'randomAccess',
     title: 'Random Access Performance',
     rankings,
-    explanation: 'Geomean of take time ratio to fastest across every chart (lower is better)',
+    explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
   };
 }
 
@@ -412,6 +494,8 @@ async function collectCompressionSummary(): Promise<Summary | null> {
       name: string;
       operation: 'encode' | 'decode';
       ratios: number[];
+      totalBytes: number;
+      totalNs: number;
     }
   >();
   for (const row of rows) {
@@ -423,8 +507,18 @@ async function collectCompressionSummary(): Promise<Summary | null> {
       name: row.format,
       operation: row.op,
       ratios: [],
+      totalBytes: 0,
+      totalNs: 0,
     };
     aggregate.ratios.push(row.parquetNs / row.valueNs);
+    if (
+      row.uncompressedBytes !== null &&
+      row.uncompressedBytes > 0 &&
+      Number.isFinite(row.uncompressedBytes)
+    ) {
+      aggregate.totalBytes += row.uncompressedBytes;
+      aggregate.totalNs += row.valueNs;
+    }
     grouped.set(key, aggregate);
   }
   const rankings: CompressionRanking[] = [];
@@ -433,11 +527,16 @@ async function collectCompressionSummary(): Promise<Summary | null> {
     if (ratio === null) {
       continue;
     }
-    rankings.push({
+    const ranking: CompressionRanking = {
       name: aggregate.name,
       operation: aggregate.operation,
       ratio,
-    });
+    };
+    if (aggregate.totalBytes > 0 && aggregate.totalNs > 0) {
+      // One byte per nanosecond equals one decimal gigabyte per second.
+      ranking.throughputGbS = aggregate.totalBytes / aggregate.totalNs;
+    }
+    rankings.push(ranking);
   }
   const operationRank = (op: 'encode' | 'decode'): number => (op === 'encode' ? 0 : 1);
   rankings.sort((a, b) => {
@@ -452,16 +551,19 @@ async function collectCompressionSummary(): Promise<Summary | null> {
   }
   return {
     type: 'compression',
-    title: 'Compression Throughput',
+    title: 'Write Throughput',
     rankings,
-    explanation: 'Geomean throughput ratio to Parquet (higher is better)',
+    explanation: 'Geomean throughput ratio to Parquet | Aggregate throughput (higher is better)',
   };
 }
 
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot.
- * Every sample uses Parquet timing from the same commit.
+ * Every sample uses Parquet timing from the same commit. Aggregate throughput uses the newest
+ * available decoded Arrow memory size for each dataset. The size commit does not need to match.
+ * The JSON field lookup returns `NULL` before migration 009 adds the column, so web deployment
+ * does not depend on migration deployment order.
  */
 async function compressionSamples(): Promise<
   Array<{
@@ -469,6 +571,7 @@ async function compressionSamples(): Promise<
     op: string;
     valueNs: number;
     parquetNs: number;
+    uncompressedBytes: number | null;
   }>
 > {
   const text = `
@@ -515,14 +618,29 @@ async function compressionSamples(): Promise<
         FROM pairs
         JOIN snapshot_policy policy ON policy.format = pairs.format
         JOIN latest_snapshots latest
-          ON latest.anchor_format = policy.anchor_format
+         ON latest.anchor_format = policy.anchor_format
          AND latest.commit_sha = pairs.commit_sha
+    ), latest_uncompressed_sizes AS (
+      SELECT DISTINCT ON (s.dataset, s.dataset_variant)
+             s.dataset, s.dataset_variant,
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
+        FROM compression_sizes s
+        JOIN commits c ON c.commit_sha = s.commit_sha
+       WHERE s.format = $4
+         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
+         AND lower(s.dataset) NOT LIKE '%wide table%'
+       ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
+                c.timestamp DESC, s.commit_sha DESC
     )
     SELECT selected.format AS format,
            selected.op AS op,
            selected.value_ns AS "valueNs",
-           selected.parquet_ns AS "parquetNs"
+           selected.parquet_ns AS "parquetNs",
+           uncompressed.uncompressed_bytes AS "uncompressedBytes"
       FROM selected
+      LEFT JOIN latest_uncompressed_sizes uncompressed
+        ON uncompressed.dataset = selected.dataset
+       AND uncompressed.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
      ORDER BY selected.op, selected.format, selected.dataset,
               selected.dataset_variant NULLS FIRST
   `;
@@ -532,26 +650,64 @@ async function compressionSamples(): Promise<
       op: string;
       valueNs: number;
       parquetNs: number;
+      uncompressedBytes: number | null;
     }>(text, compressionSummaryQueryParams())
   ).rows;
 }
 
 async function collectCompressionSizeSummary(): Promise<Summary | null> {
   const rows = await compressionSizeSamples();
-  const grouped = new Map<string, number[]>();
+  const grouped = new Map<string, { sizeRatios: number[]; compressionRatios: number[] }>();
   for (const row of rows) {
-    const ratios = grouped.get(row.format) ?? [];
-    ratios.push(row.valueBytes / row.parquetBytes);
+    const ratios = grouped.get(row.format) ?? { sizeRatios: [], compressionRatios: [] };
+    if (
+      row.valueBytes > 0 &&
+      Number.isFinite(row.valueBytes) &&
+      row.parquetBytes > 0 &&
+      Number.isFinite(row.parquetBytes)
+    ) {
+      ratios.sizeRatios.push(row.valueBytes / row.parquetBytes);
+    }
+    if (
+      row.uncompressedBytes !== null &&
+      row.uncompressedBytes > 0 &&
+      Number.isFinite(row.uncompressedBytes) &&
+      row.valueBytes > 0 &&
+      Number.isFinite(row.valueBytes)
+    ) {
+      ratios.compressionRatios.push(row.uncompressedBytes / row.valueBytes);
+    }
     grouped.set(row.format, ratios);
   }
   const rankings: CompressionSizeRanking[] = [];
   for (const [name, ratios] of grouped) {
-    const ratio = geoMean(ratios);
+    const ratio = geoMean(ratios.sizeRatios);
     if (ratio !== null) {
-      rankings.push({ name, ratio });
+      let minRatio = Infinity;
+      let maxRatio = -Infinity;
+      for (const sizeRatio of ratios.sizeRatios) {
+        minRatio = Math.min(minRatio, sizeRatio);
+        maxRatio = Math.max(maxRatio, sizeRatio);
+      }
+      rankings.push({
+        name,
+        minRatio,
+        ratio,
+        maxRatio,
+        compressionRatio: geoMean(ratios.compressionRatios),
+      });
     }
   }
-  rankings.sort((a, b) => a.ratio - b.ratio || compareCodeUnits(a.name, b.name));
+  const hasCompleteArrowRatios = rankings.every((ranking) => ranking.compressionRatio !== null);
+  rankings.sort((a, b) => {
+    if (!hasCompleteArrowRatios) {
+      return a.ratio - b.ratio || compareCodeUnits(a.name, b.name);
+    }
+    return (
+      (b.compressionRatio as number) - (a.compressionRatio as number) ||
+      compareCodeUnits(a.name, b.name)
+    );
+  });
   if (rankings.length === 0) {
     return null;
   }
@@ -559,17 +715,27 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
     type: 'compressionSize',
     title: 'Compression Size Summary',
     rankings,
-    explanation: 'Geomean size ratio to Parquet (lower is better)',
+    explanation:
+      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet-zstd (lower is better)',
   };
 }
 
 /**
  * Regularly benchmarked formats use the newest complete Vortex snapshot.
  * Each independently benchmarked format uses its own newest complete snapshot
- * and compares it with Parquet from the same commit.
+ * and compares it with Parquet from the same commit. Arrow IPC uses its newest value for each
+ * dataset and Parquet from the same commit. Compression ratios use the newest available decoded
+ * Arrow memory size for each dataset. The size commit does not need to match.
+ * The JSON field lookup returns `NULL` before migration 009 adds the column, so web deployment
+ * does not depend on migration deployment order.
  */
 async function compressionSizeSamples(): Promise<
-  Array<{ format: string; valueBytes: number; parquetBytes: number }>
+  Array<{
+    format: string;
+    valueBytes: number;
+    parquetBytes: number;
+    uncompressedBytes: number | null;
+  }>
 > {
   const text = `
     WITH pairs AS (
@@ -577,6 +743,7 @@ async function compressionSizeSamples(): Promise<
              c.timestamp AS ts,
              s.commit_sha AS commit_sha,
              s.value_bytes::float8 AS value_bytes,
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes,
              p.value_bytes::float8 AS parquet_bytes,
              s.dataset AS dataset,
              s.dataset_variant AS dataset_variant
@@ -595,6 +762,7 @@ async function compressionSizeSamples(): Promise<
       SELECT format,
              CASE WHEN format = ANY($2::text[]) THEN $3 ELSE format END AS anchor_format
         FROM unnest($1::text[]) AS configured(format)
+       WHERE format <> $5
     ), snapshot_commits AS (
       SELECT policy.anchor_format, pairs.ts, pairs.commit_sha
         FROM (SELECT DISTINCT anchor_format FROM snapshot_policy) policy
@@ -606,24 +774,55 @@ async function compressionSizeSamples(): Promise<
        ORDER BY anchor_format, ts DESC, commit_sha DESC
     ), selected AS (
       SELECT pairs.format, pairs.value_bytes, pairs.parquet_bytes,
+             pairs.uncompressed_bytes,
              pairs.dataset, pairs.dataset_variant
         FROM pairs
         JOIN snapshot_policy policy ON policy.format = pairs.format
         JOIN latest_snapshots latest
-          ON latest.anchor_format = policy.anchor_format
+         ON latest.anchor_format = policy.anchor_format
          AND latest.commit_sha = pairs.commit_sha
+    ), latest_arrow_ipc AS (
+      SELECT DISTINCT ON (pairs.dataset, pairs.dataset_variant)
+             pairs.format, pairs.value_bytes, pairs.parquet_bytes,
+             pairs.uncompressed_bytes, pairs.dataset, pairs.dataset_variant
+        FROM pairs
+       WHERE pairs.format = $5
+       ORDER BY pairs.dataset, pairs.dataset_variant NULLS FIRST,
+                pairs.ts DESC, pairs.commit_sha DESC
+    ), selected_with_arrow_ipc AS (
+      SELECT * FROM selected
+      UNION ALL
+      SELECT * FROM latest_arrow_ipc
+    ), latest_uncompressed_sizes AS (
+      SELECT DISTINCT ON (s.dataset, s.dataset_variant)
+             s.dataset, s.dataset_variant,
+             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
+        FROM compression_sizes s
+        JOIN commits c ON c.commit_sha = s.commit_sha
+       WHERE s.format = $4
+         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
+         AND lower(s.dataset) NOT LIKE '%wide table%'
+       ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
+                c.timestamp DESC, s.commit_sha DESC
     )
     SELECT selected.format AS format,
            selected.value_bytes AS "valueBytes",
-           selected.parquet_bytes AS "parquetBytes"
-      FROM selected
+           selected.parquet_bytes AS "parquetBytes",
+           COALESCE(uncompressed.uncompressed_bytes, selected.uncompressed_bytes)
+             AS "uncompressedBytes"
+      FROM selected_with_arrow_ipc selected
+      LEFT JOIN latest_uncompressed_sizes uncompressed
+        ON uncompressed.dataset = selected.dataset
+       AND uncompressed.dataset_variant IS NOT DISTINCT FROM selected.dataset_variant
      ORDER BY selected.format, selected.dataset, selected.dataset_variant NULLS FIRST
   `;
   return (
-    await getPool().query<{ format: string; valueBytes: number; parquetBytes: number }>(
-      text,
-      compressionSummaryQueryParams(),
-    )
+    await getPool().query<{
+      format: string;
+      valueBytes: number;
+      parquetBytes: number;
+      uncompressedBytes: number | null;
+    }>(text, compressionSizeSummaryQueryParams())
   ).rows;
 }
 
