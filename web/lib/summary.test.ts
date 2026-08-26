@@ -102,6 +102,42 @@ describe('compression summaries', () => {
     expect(ranking.throughputGbS).toBeCloseTo(7.5, 6);
   });
 
+  it('falls back to Parquet mean ranking until every format has an Arrow ratio', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          format: 'vortex-file-compressed',
+          valueBytes: 200,
+          parquetBytes: 100,
+          uncompressedBytes: 2_000,
+        },
+        {
+          format: 'parquet',
+          valueBytes: 100,
+          parquetBytes: 100,
+          uncompressedBytes: 500,
+        },
+        {
+          format: 'lance',
+          valueBytes: 300,
+          parquetBytes: 100,
+          uncompressedBytes: null,
+        },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'CompressionSizeGroup' });
+    if (summary === null || summary.type !== 'compressionSize') {
+      throw new Error('expected a compressionSize summary');
+    }
+
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+      'parquet',
+      'vortex-file-compressed',
+      'lance',
+    ]);
+  });
+
   it('applies extensible snapshot policies to timings and sizes', async () => {
     query.mockResolvedValue({ rows: [] });
 

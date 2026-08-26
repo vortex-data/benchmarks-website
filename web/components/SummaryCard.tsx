@@ -106,15 +106,9 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
               <div className="compression-size-arrow-list">
                 {summary.rankings.map((item, idx) => {
                   const label = displayFormat(item.name);
-                  const ranked = item.compressionRatio !== null;
                   return (
                     <div className="score-item compression-size-arrow-row" key={item.name}>
-                      <span
-                        className="score-rank"
-                        title={ranked ? undefined : 'Not ranked: no Arrow measurement'}
-                      >
-                        {ranked ? `#${idx + 1}` : '—'}
-                      </span>
+                      <span className="score-rank">#{idx + 1}</span>
                       <span className="score-series" title={label}>
                         {label}
                       </span>

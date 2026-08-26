@@ -694,10 +694,15 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
       });
     }
   }
+  const hasCompleteArrowRatios = rankings.every((ranking) => ranking.compressionRatio !== null);
   rankings.sort((a, b) => {
-    const aCompression = a.compressionRatio ?? -Infinity;
-    const bCompression = b.compressionRatio ?? -Infinity;
-    return bCompression - aCompression || compareCodeUnits(a.name, b.name);
+    if (!hasCompleteArrowRatios) {
+      return a.ratio - b.ratio || compareCodeUnits(a.name, b.name);
+    }
+    return (
+      (b.compressionRatio as number) - (a.compressionRatio as number) ||
+      compareCodeUnits(a.name, b.name)
+    );
   });
   if (rankings.length === 0) {
     return null;
