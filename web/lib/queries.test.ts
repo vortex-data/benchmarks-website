@@ -306,11 +306,13 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
     // The Rust oracle calls `tag(&format, None, Some(&format))` for these
     // families, so each series carries a format tag and no engine.
     const ra = await chartPayload({ k: 'RandomAccess', dataset: 'taxi' }, parseCommitWindow(null));
-    expect(ra?.series_meta?.['vortex-file-compressed']).toEqual({
+    expect(ra?.series_meta?.['vortex-file-compressed:hot']).toEqual({
       format: 'vortex-file-compressed',
     });
-    expect(ra?.series_meta?.parquet).toEqual({ format: 'parquet' });
-    expect(ra?.series_meta?.parquet.engine).toBeUndefined();
+    expect(ra?.series_meta?.['parquet:hot']).toEqual({ format: 'parquet' });
+    expect(ra?.series_meta?.['parquet:cold']).toEqual({ format: 'parquet' });
+    expect(ra?.series_meta?.['parquet:hot'].engine).toBeUndefined();
+    expect(ra?.series['parquet:cold']).toEqual([10_000, 1_010_000, 2_010_000]);
 
     const cs = await chartPayload(
       { k: 'CompressionSize', dataset: 'tpch-lineitem', dataset_variant: null },

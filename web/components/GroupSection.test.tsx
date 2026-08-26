@@ -22,8 +22,8 @@ const RANDOM_ACCESS: Group = {
   ],
   summary: {
     type: 'randomAccess',
-    title: 'Random Access Performance',
-    rankings: [{ name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 1, total: 1 }],
+    hotRankings: [{ name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 1, total: 1 }],
+    coldRankings: [],
     explanation: 'lower is better',
   },
   description: 'Tests selecting arbitrary row indices on NVMe',
@@ -117,8 +117,8 @@ describe('GroupSection', () => {
         universe={UNIVERSE}
       />,
     );
-    expect(html).toContain('class="benchmark-scores-summary"');
-    expect(html).toContain('Random Access Performance');
+    expect(html).toContain('benchmark-scores-summary--random-access');
+    expect(html).toContain('Hot Access');
   });
 
   it('renders one chart-card shell per chart with page-wide indices and permalinks', () => {

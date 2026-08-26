@@ -238,6 +238,7 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
       // Tier-based style: the named Vortex/Parquet series get vivid, thicker
       // lines; everything else is muted and thin (see `seriesStyle`).
       const style = seriesStyle(name, seriesMeta);
+      const coldRandomAccess = name.endsWith(':cold');
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the current
       // visible window with raw or LTTB-kept values. With `spanGaps: true` the
       // line connects across nulls, so a series with partial coverage still
@@ -250,6 +251,7 @@ function buildDatasets(payload: NormalizedChartPayload): BenchDataset[] {
         borderColor: style.color,
         backgroundColor: `${style.color}20`,
         borderWidth: style.width,
+        borderDash: coldRandomAccess ? [6, 4] : undefined,
         // Layer the hero series on top: Vortex in front ... arrow at the back,
         // datafusion ahead of duckdb. Lower `order` renders on top in Chart.js.
         order: seriesOrder(name, seriesMeta),

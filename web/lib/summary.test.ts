@@ -215,12 +215,13 @@ describe('timing summaries (shared ranking model)', () => {
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
-    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
-    expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 6);
-    expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 6);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
-    expect(summary.rankings.map((r) => r.measured)).toEqual([3, 3]);
-    expect(summary.rankings.map((r) => r.total)).toEqual([3, 3]);
+    expect(summary.hotRankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
+    expect(summary.hotRankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 6);
+    expect(summary.hotRankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 6);
+    expect(summary.hotRankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
+    expect(summary.hotRankings.map((r) => r.measured)).toEqual([3, 3]);
+    expect(summary.hotRankings.map((r) => r.total)).toEqual([3, 3]);
+    expect(summary.coldRankings).toEqual([]);
   });
 
   it('combines correlated, uniform, and legacy taxi charts into dataset totals', async () => {
@@ -243,8 +244,8 @@ describe('timing summaries (shared ranking model)', () => {
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
-    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
-    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['vortex', 'lance']);
+    const byName = new Map(summary.hotRankings.map((ranking) => [ranking.name, ranking]));
+    expect(summary.hotRankings.map((ranking) => ranking.name)).toEqual(['vortex', 'lance']);
     expect(byName.get('vortex')?.score).toBeCloseTo(1, 6);
     expect(byName.get('lance')?.score).toBeCloseTo(
       Math.sqrt((10_100_010 / 2_000_010) * (1_000_010 / 300_010)),
@@ -252,7 +253,7 @@ describe('timing summaries (shared ranking model)', () => {
     );
     expect(byName.get('vortex')?.totalRuntime).toBeCloseTo(2_300_000 / 2, 6);
     expect(byName.get('lance')?.totalRuntime).toBeCloseTo(11_100_000 / 2, 6);
-    expect(summary.rankings.map((ranking) => [ranking.measured, ranking.total])).toEqual([
+    expect(summary.hotRankings.map((ranking) => [ranking.measured, ranking.total])).toEqual([
       [2, 2],
       [2, 2],
     ]);
@@ -267,8 +268,8 @@ describe('timing summaries (shared ranking model)', () => {
     const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
     // Per-series freshness, not one global latest commit: a format that skipped
     // the newest commit stays on the card at its own last run.
-    expect(text).toContain('DISTINCT ON (r.dataset, r.format)');
-    expect(text).toContain('ORDER BY r.dataset, r.format, c.timestamp DESC');
+    expect(text).toContain('DISTINCT ON (r.dataset, r.format, r.open_mode)');
+    expect(text).toContain('ORDER BY r.dataset, r.format, r.open_mode, c.timestamp DESC');
     expect(text).not.toContain('MAX(c2.timestamp)');
   });
 
@@ -285,10 +286,10 @@ describe('timing summaries (shared ranking model)', () => {
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
-    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    const byName = new Map(summary.hotRankings.map((r) => [r.name, r]));
     // lance skipped `taxi`, so that bucket scores max(100_000, 0) * 2 against
     // taxi's best of 50_000 -- which is what keeps it behind `vortex`.
-    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
+    expect(summary.hotRankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
     expect(byName.get('lance')?.score).toBeCloseTo(Math.sqrt(200_010 / 50_010), 6);
     expect(byName.get('lance')?.measured).toBe(1);
     expect(byName.get('lance')?.total).toBe(2);
@@ -310,9 +311,9 @@ describe('timing summaries (shared ranking model)', () => {
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
-    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+    const byName = new Map(summary.hotRankings.map((ranking) => [ranking.name, ranking]));
 
-    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['complete', 'partial']);
+    expect(summary.hotRankings.map((ranking) => ranking.name)).toEqual(['complete', 'partial']);
     expect(byName.get('partial')?.score).toBeCloseTo(2, 6);
     expect(byName.get('partial')?.measured).toBe(0);
     expect(byName.get('partial')?.total).toBe(1);
@@ -332,14 +333,35 @@ describe('timing summaries (shared ranking model)', () => {
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
-    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    const byName = new Map(summary.hotRankings.map((r) => [r.name, r]));
     // The absolute penalty for `partial` is 200_000ns. That value is faster
     // than the measured 100_000_000ns best on `slow`, so the 2x ratio floor
     // must prevent the absent bucket from improving the partial series' score.
-    expect(summary.rankings.map((r) => r.name)).toEqual(['complete', 'partial']);
+    expect(summary.hotRankings.map((r) => r.name)).toEqual(['complete', 'partial']);
     expect(byName.get('partial')?.score).toBeCloseTo(Math.sqrt(2), 6);
     expect(byName.get('partial')?.measured).toBe(1);
     expect(byName.get('partial')?.total).toBe(2);
+  });
+
+  it('ranks hot and cold random access independently', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'taxi', series: 'vortex', open_mode: 'cached', value: 100_000 },
+        { bucket: 'taxi', series: 'parquet', open_mode: 'cached', value: 400_000 },
+        { bucket: 'taxi', series: 'vortex', open_mode: 'reopen', value: 900_000 },
+        { bucket: 'taxi', series: 'parquet', open_mode: 'reopen', value: 300_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+
+    expect(summary.hotRankings.map((ranking) => ranking.name)).toEqual(['vortex', 'parquet']);
+    expect(summary.coldRankings.map((ranking) => ranking.name)).toEqual(['parquet', 'vortex']);
+    expect(summary.hotRankings[0].totalRuntime).toBe(100_000);
+    expect(summary.coldRankings[0].totalRuntime).toBe(300_000);
   });
 
   it('summarizes a vector-search group across its thresholds', async () => {

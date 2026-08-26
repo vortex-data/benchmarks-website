@@ -83,19 +83,23 @@ describe.skipIf(!dockerAvailable())(
       if (summary.type !== 'randomAccess') {
         throw new Error(`expected randomAccess summary, got ${summary.type}`);
       }
-      expect(summary.title).toBe('Random Access Performance');
-      expect(summary.rankings[0].name).toBe('vortex-file-compressed');
-      expect(summary.rankings[1].name).toBe('parquet');
-      expect(summary.rankings[2].name).toBe('arrow-ipc');
+      expect(summary.hotRankings[0].name).toBe('vortex-file-compressed');
+      expect(summary.hotRankings[1].name).toBe('parquet');
+      expect(summary.hotRankings[2].name).toBe('arrow-ipc');
+      expect(summary.coldRankings.map((r) => r.name)).toEqual([
+        'vortex-file-compressed',
+        'parquet',
+        'arrow-ipc',
+      ]);
       // The fixture's newest commit has vortex=100_500 and parquet=201_000 on
       // the one `taxi` chart. Arrow IPC is 301_500 on the same chart.
-      expect(summary.rankings[0].score).toBeCloseTo(1.0, 6);
-      expect(summary.rankings[1].score).toBeCloseTo(1.9999005, 6);
-      expect(summary.rankings[2].score).toBeCloseTo(2.999801, 6);
-      expect(summary.rankings[0].totalRuntime).toBeCloseTo(100_500, 6);
-      expect(summary.rankings[1].totalRuntime).toBeCloseTo(201_000, 6);
-      expect(summary.rankings[2].totalRuntime).toBeCloseTo(301_500, 6);
-      expect(summary.rankings.map((r) => [r.measured, r.total])).toEqual([
+      expect(summary.hotRankings[0].score).toBeCloseTo(1.0, 6);
+      expect(summary.hotRankings[1].score).toBeCloseTo(1.9999005, 6);
+      expect(summary.hotRankings[2].score).toBeCloseTo(2.999801, 6);
+      expect(summary.hotRankings[0].totalRuntime).toBeCloseTo(100_500, 6);
+      expect(summary.hotRankings[1].totalRuntime).toBeCloseTo(201_000, 6);
+      expect(summary.hotRankings[2].totalRuntime).toBeCloseTo(301_500, 6);
+      expect(summary.hotRankings.map((r) => [r.measured, r.total])).toEqual([
         [1, 1],
         [1, 1],
         [1, 1],
@@ -460,11 +464,11 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (summary.type !== 'randomAccess') {
       throw new Error(`expected randomAccess summary, got ${summary.type}`);
     }
-    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
+    expect(summary.hotRankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
     // vortex: cbrt(1100000/350000 * 1 * 1); lance: cbrt(1 * 3 * 3).
-    expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 5);
-    expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 5);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
+    expect(summary.hotRankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 5);
+    expect(summary.hotRankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 5);
+    expect(summary.hotRankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
   });
 
   it('keeps an intermittently benchmarked format at its own latest run', async () => {
@@ -488,7 +492,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (summary.type !== 'randomAccess') {
       throw new Error(`expected randomAccess summary, got ${summary.type}`);
     }
-    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    const byName = new Map(summary.hotRankings.map((r) => [r.name, r]));
     // Vortex is read at the newer commit, lance at its own older one.
     expect(byName.get('vortex-file-compressed')?.totalRuntime).toBeCloseTo(1_000_000, 6);
     expect(byName.get('lance')?.totalRuntime).toBeCloseTo(4_000_000, 6);
@@ -512,8 +516,8 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     if (summary.type !== 'randomAccess') {
       throw new Error(`expected randomAccess summary, got ${summary.type}`);
     }
-    expect(summary.rankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
-    const byName = new Map(summary.rankings.map((r) => [r.name, r]));
+    expect(summary.hotRankings.map((r) => r.name)).toEqual(['vortex-file-compressed', 'lance']);
+    const byName = new Map(summary.hotRankings.map((r) => [r.name, r]));
     // lance: sqrt(1 * (10 + 200_000) / (10 + 50_000)) with penalty
     // max(100_000, 0) * 2 = 200_000 on the chart it skipped.
     expect(byName.get('lance')?.score).toBeCloseTo(Math.sqrt(200_010 / 50_010), 6);

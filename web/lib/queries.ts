@@ -351,6 +351,7 @@ type ValueRow = { commit_sha: string; value: number };
 type QueryRow = ValueRow & { engine: string; format: string };
 type CompressionTimeRow = ValueRow & { format: string; op: string };
 type FormatRow = ValueRow & { format: string };
+type RandomAccessRow = ValueRow & { format: string; open_mode: 'cached' | 'reopen' };
 type FlavorRow = ValueRow & { flavor: string };
 
 async function collectQueryChart(
@@ -532,20 +533,22 @@ async function collectRandomAccessChart(
   const params = new QueryParams();
   const text = `
     SELECT r.commit_sha,
-           r.format, r.value_ns::float8 AS value
+           r.format, r.open_mode, r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
      WHERE r.dataset = ${params.bind(dataset)}${factWindowFilter(params, window)}
-     ORDER BY c.timestamp, r.format
+     ORDER BY c.timestamp, r.format, r.open_mode
   `;
-  const rows = (await getPool().query<FormatRow>(text, params.values)).rows;
+  const rows = (await getPool().query<RandomAccessRow>(text, params.values)).rows;
   for (const row of rows) {
     const idx = acc.commitIdx(row.commit_sha);
     if (idx === undefined) {
       continue;
     }
-    acc.record(row.format, idx, row.value);
-    acc.tag(row.format, undefined, row.format);
+    const mode = row.open_mode === 'cached' ? 'hot' : 'cold';
+    const series = `${row.format}:${mode}`;
+    acc.record(series, idx, row.value);
+    acc.tag(series, undefined, row.format);
   }
 
   return acc.finish(dataset, 'time_ns', seeded.history);

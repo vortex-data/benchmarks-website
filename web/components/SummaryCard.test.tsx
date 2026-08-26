@@ -16,18 +16,20 @@ describe('SummaryCard', () => {
     expect(render(undefined)).toBe('');
   });
 
-  it('renders a randomAccess card with ranks, scores, and total runtimes', () => {
+  it('renders hot and cold random-access rankings', () => {
     const html = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: [
+      hotRankings: [
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 2, total: 2 },
         { name: 'parquet', score: 2, totalRuntime: 3_000_000, measured: 2, total: 2 },
       ],
+      coldRankings: [{ name: 'parquet', score: 1, totalRuntime: 4_000_000, measured: 2, total: 2 }],
       explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
     });
-    expect(html).toContain('class="benchmark-scores-summary"');
-    expect(html).toContain('<h3 class="scores-title">Random Access Performance</h3>');
+    expect(html).toContain('benchmark-scores-summary--random-access');
+    expect(html).toContain('>Hot Access</h3>');
+    expect(html).toContain('>Cold Access</h3>');
+    expect(html).toContain('It does not clear the OS page cache.');
     expect(html).toContain('#1');
     expect(html).toContain('vortex');
     expect(html).toContain('1.50 ms');
@@ -36,6 +38,7 @@ describe('SummaryCard', () => {
     expect(html).toContain('parquet');
     expect(html).toContain('3.00 ms');
     expect(html).toContain('2.00x');
+    expect(html).toContain('4.00 ms');
     expect(html).toContain(
       'Geomean of take time ratio to fastest across every dataset (lower is better)',
     );
@@ -44,12 +47,12 @@ describe('SummaryCard', () => {
   it('flags a partially measured series in its hover text', () => {
     const html = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: [
+      hotRankings: [
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 9, total: 9 },
         { name: 'lance', score: 3, totalRuntime: 3_000_000, measured: 4, total: 9 },
         { name: 'arrow-ipc', score: 4, totalRuntime: 0, measured: 0, total: 9 },
       ],
+      coldRankings: [],
       explanation: 'e',
     });
     // The full-coverage series keeps a bare label; the partial one says so, so
@@ -58,10 +61,14 @@ describe('SummaryCard', () => {
     expect(html).toContain('measured in 4 of 9 datasets');
     expect(html).toContain('measured in 0 of 9 datasets');
     expect(html).toContain('<span class="score-runtime">—</span>');
+    expect(html).toContain('random-access-scores--single');
+    expect(html).not.toContain('Cold Access');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
-    expect(render({ type: 'randomAccess', title: 't', rankings: [], explanation: 'e' })).toBe('');
+    expect(
+      render({ type: 'randomAccess', hotRankings: [], coldRankings: [], explanation: 'e' }),
+    ).toBe('');
   });
 
   it('uses two columns only for timing summaries with at least five results', () => {
@@ -74,8 +81,8 @@ describe('SummaryCard', () => {
     });
     const fourResults = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: Array.from({ length: 4 }, (_, index) => ranking(index)),
+      hotRankings: Array.from({ length: 4 }, (_, index) => ranking(index)),
+      coldRankings: [],
       explanation: 'lower is better',
     });
     const fiveResults = render({
@@ -85,7 +92,7 @@ describe('SummaryCard', () => {
       explanation: 'lower is better',
     });
 
-    expect(fourResults).toContain('class="scores-list"');
+    expect(fourResults).toContain('class="scores-list random-access-scores-list"');
     expect(fourResults).not.toContain('scores-list--split');
     expect(fiveResults).toContain('class="scores-list scores-list--split"');
   });
