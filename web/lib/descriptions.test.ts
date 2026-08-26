@@ -14,7 +14,7 @@ describe('groupDescription', () => {
     expect(groupDescription('Compression')).toBe(
       'Measures write and scan throughput for Vortex, Parquet, and Lance files',
     );
-    expect(groupDescription('Compression Size')).toBe(
+    expect(groupDescription('Compression Ratio')).toBe(
       'Compares compressed file sizes and compression ratios across different encoding strategies',
     );
     expect(groupDescription('Clickbench')).toBe(

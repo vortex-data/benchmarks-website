@@ -24,7 +24,7 @@ describe('SummaryCard', () => {
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 2, total: 2 },
         { name: 'parquet', score: 2, totalRuntime: 3_000_000, measured: 2, total: 2 },
       ],
-      explanation: 'Geomean of take time ratio to fastest across every chart (lower is better)',
+      explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
     });
     expect(html).toContain('class="benchmark-scores-summary"');
     expect(html).toContain('<h3 class="scores-title">Random Access Performance</h3>');
@@ -37,7 +37,7 @@ describe('SummaryCard', () => {
     expect(html).toContain('3.00 ms');
     expect(html).toContain('2.00x');
     expect(html).toContain(
-      'Geomean of take time ratio to fastest across every chart (lower is better)',
+      'Geomean of take time ratio to fastest across every dataset (lower is better)',
     );
   });
 
@@ -64,7 +64,7 @@ describe('SummaryCard', () => {
   it('renders compression rankings with ratios and aggregate throughput', () => {
     const html = render({
       type: 'compression',
-      title: 'Compression Throughput',
+      title: 'Write Throughput',
       rankings: [
         {
           name: 'vortex-file-compressed',
@@ -80,8 +80,9 @@ describe('SummaryCard', () => {
       ],
       explanation: 'higher is better',
     });
-    expect(html).toContain('<h3 class="scores-title">Compression Throughput</h3>');
-    expect(html).toContain('<h3 class="scores-title">Decompression Throughput</h3>');
+    expect(html).toContain('aria-label="Write Throughput and Scan Throughput"');
+    expect(html).toContain('<h3 class="scores-title">Write Throughput</h3>');
+    expect(html).toContain('<h3 class="scores-title">Scan Throughput</h3>');
     expect(html).not.toContain('compression-scores-subtitle');
     expect(html).toContain('class="compression-scores-panel"');
     expect(html).toContain('>vortex</span>');
@@ -96,24 +97,51 @@ describe('SummaryCard', () => {
     expect(render({ type: 'compression', title: 't', rankings: [], explanation: 'e' })).toBe('');
   });
 
-  it('renders compression-size rankings with ratios', () => {
+  it('renders Parquet size ranges and in-memory Arrow compression ratios', () => {
     const html = render({
       type: 'compressionSize',
-      title: 'Compression Size Summary',
+      title: 'Compression Ratio Summary',
       rankings: [
-        { name: 'vortex-file-compressed', ratio: 0.45, compressionRatio: 8.25 },
-        { name: 'parquet', ratio: 1, compressionRatio: 4.5 },
-        { name: 'lance', ratio: 1.2, compressionRatio: null },
+        {
+          name: 'vortex-file-compressed',
+          minRatio: 0.55,
+          ratio: 0.45,
+          maxRatio: 1.55,
+          compressionRatio: 8.25,
+        },
+        {
+          name: 'parquet',
+          minRatio: 1,
+          ratio: 1,
+          maxRatio: 1,
+          compressionRatio: 4.5,
+        },
+        {
+          name: 'lance',
+          minRatio: 1.1,
+          ratio: 1.2,
+          maxRatio: 1.3,
+          compressionRatio: null,
+        },
       ],
-      explanation: 'lower is better',
+      explanation: 'higher is better',
     });
-    expect(html).toContain('0.45x');
+    expect(html).not.toContain('<h3 class="scores-title">Compression Ratio Summary</h3>');
+    expect(html).toContain('class="compression-size-scores"');
+    expect(html).toContain('Vs Arrow');
+    expect(html).toContain('Vs Parquet');
+    expect(html).not.toContain('GeoMean');
+    expect(html.match(/📊 Mean/g)).toHaveLength(1);
+    expect(html).toContain('⬇️ Min');
+    expect(html).toContain('⬆️ Max');
+    expect(html).toContain('class="score-value compression-ratio-value">8.25x</span>');
+    expect(html).toContain('class="score-runtime compression-ratio-value">0.55x</span>');
+    expect(html).toContain('class="score-value compression-ratio-value">0.45x</span>');
+    expect(html).toContain('class="score-runtime compression-ratio-value">1.55x</span>');
+    expect(html.indexOf('8.25x')).toBeLessThan(html.indexOf('0.55x'));
     expect(html).toContain('parquet');
-    expect(html).toContain('1.00x');
     expect(html).toContain('lance');
-    expect(html).toContain('1.20x');
-    expect(html).toContain('class="score-runtime">8.25</span>');
-    expect(html).toContain('class="score-runtime">4.50</span>');
+    expect(html).toContain('class="score-value compression-ratio-value">—</span>');
     expect(html).not.toContain('GB');
   });
 

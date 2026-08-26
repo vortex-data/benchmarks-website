@@ -48,10 +48,21 @@ describe('compression summaries', () => {
     const byFormat = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
 
     // sqrt((1 / 4) * (900 / 100)) is 1.5.
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual([
+      'vortex-file-compressed',
+      'parquet',
+    ]);
     expect(byFormat.get('vortex-file-compressed')?.ratio).toBeCloseTo(1.5, 6);
     expect(byFormat.get('parquet')?.ratio).toBeCloseTo(1, 6);
+    expect(byFormat.get('vortex-file-compressed')?.minRatio).toBeCloseTo(0.25, 6);
+    expect(byFormat.get('vortex-file-compressed')?.maxRatio).toBeCloseTo(9, 6);
     expect(byFormat.get('vortex-file-compressed')?.compressionRatio).toBeCloseTo(8, 6);
+    expect(byFormat.get('parquet')?.minRatio).toBeCloseTo(1, 6);
+    expect(byFormat.get('parquet')?.maxRatio).toBeCloseTo(1, 6);
     expect(byFormat.get('parquet')?.compressionRatio).toBeCloseTo(4, 6);
+    expect(summary.explanation).toBe(
+      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet (lower is better)',
+    );
   });
 
   it('uses available Arrow memory sizes for aggregate throughput', async () => {
@@ -81,7 +92,7 @@ describe('compression summaries', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'CompressionTimeGroup' }, []);
+    const summary = await collectGroupSummary({ k: 'CompressionTimeGroup' });
     if (summary === null || summary.type !== 'compression') {
       throw new Error('expected a compression summary');
     }
@@ -143,7 +154,7 @@ describe('timing summaries (shared ranking model)', () => {
     query.mockReset();
   });
 
-  it('ranks random access across every chart, not the first one', async () => {
+  it('sums random-access charts by dataset before ranking', async () => {
     // The regression: the old summary published one chart's raw times under the
     // group-wide title. `lance` wins `feature-vectors/correlated` outright and
     // loses the other two charts 3x; the group ranking must reflect all three.
@@ -165,9 +176,47 @@ describe('timing summaries (shared ranking model)', () => {
     expect(summary.rankings.map((r) => r.name)).toEqual(['vortex', 'lance']);
     expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 6);
     expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 6);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
     expect(summary.rankings.map((r) => r.measured)).toEqual([3, 3]);
     expect(summary.rankings.map((r) => r.total)).toEqual([3, 3]);
+  });
+
+  it('combines correlated, uniform, and legacy taxi charts into dataset totals', async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        { bucket: 'feature-vectors/correlated', series: 'lance', value: 100_000 },
+        { bucket: 'feature-vectors/correlated', series: 'vortex', value: 1_000_000 },
+        { bucket: 'feature-vectors/uniform', series: 'lance', value: 10_000_000 },
+        { bucket: 'feature-vectors/uniform', series: 'vortex', value: 1_000_000 },
+        { bucket: 'taxi', series: 'lance', value: 200_000 },
+        { bucket: 'taxi', series: 'vortex', value: 100_000 },
+        { bucket: 'taxi/correlated', series: 'lance', value: 300_000 },
+        { bucket: 'taxi/correlated', series: 'vortex', value: 100_000 },
+        { bucket: 'taxi/uniform', series: 'lance', value: 500_000 },
+        { bucket: 'taxi/uniform', series: 'vortex', value: 100_000 },
+      ],
+    });
+
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    if (summary === null || summary.type !== 'randomAccess') {
+      throw new Error('expected a randomAccess summary');
+    }
+    const byName = new Map(summary.rankings.map((ranking) => [ranking.name, ranking]));
+    expect(summary.rankings.map((ranking) => ranking.name)).toEqual(['vortex', 'lance']);
+    expect(byName.get('vortex')?.score).toBeCloseTo(1, 6);
+    expect(byName.get('lance')?.score).toBeCloseTo(
+      Math.sqrt((10_100_010 / 2_000_010) * (1_000_010 / 300_010)),
+      6,
+    );
+    expect(byName.get('vortex')?.totalRuntime).toBeCloseTo(2_300_000 / 2, 6);
+    expect(byName.get('lance')?.totalRuntime).toBeCloseTo(11_100_000 / 2, 6);
+    expect(summary.rankings.map((ranking) => [ranking.measured, ranking.total])).toEqual([
+      [2, 2],
+      [2, 2],
+    ]);
+    expect(summary.explanation).toBe(
+      'Geomean of take time ratio to fastest across every dataset (lower is better)',
+    );
   });
 
   it('reads each random-access format at its own newest run', async () => {

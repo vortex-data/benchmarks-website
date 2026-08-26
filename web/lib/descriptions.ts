@@ -43,7 +43,7 @@ function staticDescription(name: string): string | null {
       return 'Tests performance of selecting arbitrary row indices from a file on NVMe storage';
     case 'Compression':
       return 'Measures write and scan throughput for Vortex, Parquet, and Lance files';
-    case 'Compression Size':
+    case 'Compression Ratio':
       return (
         'Compares compressed file sizes and compression ratios across different encoding ' +
         'strategies'

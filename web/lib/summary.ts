@@ -82,8 +82,8 @@ function compressionSizeSummaryQueryParams(): [string[], string[], string, strin
  *
  * `score` is the headline number: the geomean of this series' time ratio to
  * the fastest series, taken over every bucket in the group (queries for a
- * query suite, `dataset/pattern` charts for random access, thresholds for
- * vector search). A single bucket's absolute time is deliberately NOT the
+ * query suite, dataset totals for random access, thresholds for vector
+ * search). A single bucket's absolute time is deliberately NOT the
  * headline -- a summary that quoted one arbitrary chart's numbers reads as a
  * claim about the whole group and is wrong whenever the group's charts
  * disagree.
@@ -93,7 +93,7 @@ export interface SeriesRanking {
   name: string;
   /** Geomean ratio to the fastest series per bucket. Lower is better. */
   score: number;
-  /** Sum of the latest times over the buckets this series was measured in. */
+  /** Secondary runtime: a sum, except for random access where this is a dataset mean. */
   totalRuntime: number;
   /** Buckets this series has a measurement for. */
   measured: number;
@@ -120,8 +120,12 @@ export interface CompressionRanking {
 export interface CompressionSizeRanking {
   /** On-disk format. */
   name: string;
+  /** Minimum size ratio to Parquet across datasets. */
+  minRatio: number;
   /** Geomean size ratio to Parquet for shared datasets. */
   ratio: number;
+  /** Maximum size ratio to Parquet across datasets. */
+  maxRatio: number;
   /** Geomean ratio of Arrow memory size to the format size. */
   compressionRatio: number | null;
 }
@@ -334,7 +338,59 @@ function rankSeries<K>(
 }
 
 /**
- * The random-access rollup, over every `(dataset, pattern)` chart in the group.
+ * Sum random-access chart medians into one bucket per dataset.
+ *
+ * Correlated and uniform charts contribute to one dataset total. The legacy
+ * `taxi` chart contributes to the same total as `taxi/correlated` and
+ * `taxi/uniform`. A format must cover every chart in a dataset before that
+ * dataset contributes to its score. Coverage describes complete datasets.
+ */
+function groupRandomAccessSamples(
+  samples: readonly SeriesSample<string>[],
+): SeriesSample<string>[] {
+  const chartsByDataset = new Map<string, Set<string>>();
+  const groupsBySeries = new Map<string, Map<string, { value: number; charts: Set<string> }>>();
+
+  for (const sample of samples) {
+    if (!(sample.value > 0) || !Number.isFinite(sample.value)) {
+      continue;
+    }
+    const separator = sample.bucket.indexOf('/');
+    const dataset = separator === -1 ? sample.bucket : sample.bucket.slice(0, separator);
+    let charts = chartsByDataset.get(dataset);
+    if (charts === undefined) {
+      charts = new Set<string>();
+      chartsByDataset.set(dataset, charts);
+    }
+    charts.add(sample.bucket);
+
+    let seriesGroups = groupsBySeries.get(sample.series);
+    if (seriesGroups === undefined) {
+      seriesGroups = new Map<string, { value: number; charts: Set<string> }>();
+      groupsBySeries.set(sample.series, seriesGroups);
+    }
+    let group = seriesGroups.get(dataset);
+    if (group === undefined) {
+      group = { value: 0, charts: new Set<string>() };
+      seriesGroups.set(dataset, group);
+    }
+    group.value += sample.value;
+    group.charts.add(sample.bucket);
+  }
+
+  const grouped: SeriesSample<string>[] = [];
+  for (const [series, seriesGroups] of groupsBySeries) {
+    for (const [dataset, group] of seriesGroups) {
+      if (group.charts.size === chartsByDataset.get(dataset)?.size) {
+        grouped.push({ series, bucket: dataset, value: group.value });
+      }
+    }
+  }
+  return grouped;
+}
+
+/**
+ * The random-access rollup, over one summed bucket per dataset in the group.
  *
  * Two things this deliberately does NOT do, both of which the previous
  * implementation did:
@@ -344,8 +400,8 @@ function rankSeries<K>(
  *    alphabetically first `dataset/pattern` -- then published its raw times
  *    under the group-wide title "Random Access Performance". The producer
  *    (`benchmarks/random-access-bench`) emits `dataset` as `{dataset}/{pattern}`
- *    plus the legacy bare `taxi`, so that was one of nine charts speaking for
- *    all nine.
+ *    plus the legacy bare `taxi`. Correlated and uniform medians are summed
+ *    within each dataset. The bare `taxi` median joins the other taxi medians.
  *  - It does not pin every format to one global latest commit. `format` is
  *    ranked from its own newest run per chart, the same freshness policy the
  *    compression summaries apply to intermittently benchmarked formats such as
@@ -368,7 +424,11 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
   `;
   const rows = (await getPool().query<{ bucket: string; series: string; value: number }>(text))
     .rows;
-  const rankings = rankSeries(rows, compareCodeUnits, 0, 2);
+  const grouped = groupRandomAccessSamples(rows);
+  const rankings = rankSeries(grouped, compareCodeUnits, 0, 2).map((ranking) => ({
+    ...ranking,
+    totalRuntime: ranking.totalRuntime / ranking.measured,
+  }));
   if (rankings.length === 0) {
     return null;
   }
@@ -376,7 +436,7 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
     type: 'randomAccess',
     title: 'Random Access Performance',
     rankings,
-    explanation: 'Geomean of take time ratio to fastest across every chart (lower is better)',
+    explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
   };
 }
 
@@ -487,7 +547,7 @@ async function collectCompressionSummary(): Promise<Summary | null> {
   }
   return {
     type: 'compression',
-    title: 'Compression Throughput',
+    title: 'Write Throughput',
     rankings,
     explanation: 'Geomean throughput ratio to Parquet | Aggregate throughput (higher is better)',
   };
@@ -594,11 +654,20 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
   const grouped = new Map<string, { sizeRatios: number[]; compressionRatios: number[] }>();
   for (const row of rows) {
     const ratios = grouped.get(row.format) ?? { sizeRatios: [], compressionRatios: [] };
-    ratios.sizeRatios.push(row.valueBytes / row.parquetBytes);
+    if (
+      row.valueBytes > 0 &&
+      Number.isFinite(row.valueBytes) &&
+      row.parquetBytes > 0 &&
+      Number.isFinite(row.parquetBytes)
+    ) {
+      ratios.sizeRatios.push(row.valueBytes / row.parquetBytes);
+    }
     if (
       row.uncompressedBytes !== null &&
       row.uncompressedBytes > 0 &&
-      Number.isFinite(row.uncompressedBytes)
+      Number.isFinite(row.uncompressedBytes) &&
+      row.valueBytes > 0 &&
+      Number.isFinite(row.valueBytes)
     ) {
       ratios.compressionRatios.push(row.uncompressedBytes / row.valueBytes);
     }
@@ -608,23 +677,35 @@ async function collectCompressionSizeSummary(): Promise<Summary | null> {
   for (const [name, ratios] of grouped) {
     const ratio = geoMean(ratios.sizeRatios);
     if (ratio !== null) {
+      let minRatio = Infinity;
+      let maxRatio = -Infinity;
+      for (const sizeRatio of ratios.sizeRatios) {
+        minRatio = Math.min(minRatio, sizeRatio);
+        maxRatio = Math.max(maxRatio, sizeRatio);
+      }
       rankings.push({
         name,
+        minRatio,
         ratio,
+        maxRatio,
         compressionRatio: geoMean(ratios.compressionRatios),
       });
     }
   }
-  rankings.sort((a, b) => a.ratio - b.ratio || compareCodeUnits(a.name, b.name));
+  rankings.sort((a, b) => {
+    const aCompression = a.compressionRatio ?? -Infinity;
+    const bCompression = b.compressionRatio ?? -Infinity;
+    return bCompression - aCompression || compareCodeUnits(a.name, b.name);
+  });
   if (rankings.length === 0) {
     return null;
   }
   return {
     type: 'compressionSize',
-    title: 'Compression Size Summary',
+    title: 'Compression Ratio Summary',
     rankings,
     explanation:
-      'Geomean size ratio to Parquet (lower is better) | Estimated ratio from decoded Arrow memory (higher is better)',
+      'Geometric means of compressed sizes versus Arrow (higher is better) and versus Parquet (lower is better)',
   };
 }
 

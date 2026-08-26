@@ -67,7 +67,7 @@ describe.skipIf(!dockerAvailable())(
       // `Random Access` is directly before Clickbench in GROUP_ORDER.
       expect(groups.map((g) => g.name)).toEqual([
         'Compression',
-        'Compression Size',
+        'Compression Ratio',
         'Random Access',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
@@ -153,7 +153,7 @@ describe.skipIf(!dockerAvailable())(
     it('computes compression-size rankings for Vortex, Parquet, Lance, and Arrow IPC', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
-        groups.find((g) => g.name === 'Compression Size')?.summary,
+        groups.find((g) => g.name === 'Compression Ratio')?.summary,
         'compression size summary',
       );
       if (summary.type !== 'compressionSize') {
@@ -226,7 +226,7 @@ describe.skipIf(!dockerAvailable())(
       const body = (await res.json()) as GroupsResponse;
       expect(body.groups.map((g) => g.name)).toEqual([
         'Compression',
-        'Compression Size',
+        'Compression Ratio',
         'Random Access',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
@@ -461,7 +461,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     // vortex: cbrt(1100000/350000 * 1 * 1); lance: cbrt(1 * 3 * 3).
     expect(summary.rankings[0].score).toBeCloseTo(Math.cbrt(1_100_010 / 350_010), 5);
     expect(summary.rankings[1].score).toBeCloseTo(Math.cbrt((3_000_010 / 1_000_010) ** 2), 5);
-    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000, 6);
+    expect(summary.rankings[0].totalRuntime).toBeCloseTo(3_100_000 / 3, 6);
   });
 
   it('keeps an intermittently benchmarked format at its own latest run', async () => {
