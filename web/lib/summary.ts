@@ -799,7 +799,7 @@ async function compressionSizeSamples(): Promise<
     SELECT selected.format AS format,
            selected.value_bytes AS "valueBytes",
            selected.parquet_bytes AS "parquetBytes",
-           COALESCE(selected.uncompressed_bytes, uncompressed.uncompressed_bytes)
+           COALESCE(uncompressed.uncompressed_bytes, selected.uncompressed_bytes)
              AS "uncompressedBytes"
       FROM selected_with_arrow_ipc selected
       LEFT JOIN latest_uncompressed_sizes uncompressed

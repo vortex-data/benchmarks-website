@@ -149,6 +149,9 @@ describe('compression summaries', () => {
     expect(calls[1][0]).toContain('latest_arrow_ipc');
     expect(calls[1][0]).toContain('selected_with_arrow_ipc');
     expect(calls[1][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
+    expect(calls[1][0]).toContain(
+      'COALESCE(uncompressed.uncompressed_bytes, selected.uncompressed_bytes)',
+    );
   });
 });
 

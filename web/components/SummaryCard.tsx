@@ -104,19 +104,28 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                 <span className="compression-size-group">Vs Arrow</span>
               </div>
               <div className="compression-size-arrow-list">
-                {summary.rankings.map((item, idx) => (
-                  <div className="score-item compression-size-arrow-row" key={item.name}>
-                    <span className="score-rank">#{idx + 1}</span>
-                    <span className="score-series" title={displayFormat(item.name)}>
-                      {displayFormat(item.name)}
-                    </span>
-                    <span className="score-value compression-size-value">
-                      {item.compressionRatio === null
-                        ? '—'
-                        : formatCompressionSizeRatio(item.compressionRatio)}
-                    </span>
-                  </div>
-                ))}
+                {summary.rankings.map((item, idx) => {
+                  const label = displayFormat(item.name);
+                  const ranked = item.compressionRatio !== null;
+                  return (
+                    <div className="score-item compression-size-arrow-row" key={item.name}>
+                      <span
+                        className="score-rank"
+                        title={ranked ? undefined : 'Not ranked: no Arrow measurement'}
+                      >
+                        {ranked ? `#${idx + 1}` : '—'}
+                      </span>
+                      <span className="score-series" title={label}>
+                        {label}
+                      </span>
+                      <span className="score-value compression-size-value">
+                        {item.compressionRatio === null
+                          ? '—'
+                          : formatCompressionSizeRatio(item.compressionRatio)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div className="compression-size-panel compression-size-parquet-panel">
@@ -127,19 +136,27 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                 <span className="compression-size-heading">⬆️ Max</span>
               </div>
               <div className="compression-size-parquet-list">
-                {summary.rankings.map((item) => (
-                  <div className="compression-size-parquet-row" key={item.name}>
-                    <span className="score-runtime compression-size-value">
-                      {formatCompressionSizeRatio(item.minRatio)}
-                    </span>
-                    <span className="score-value compression-size-value">
-                      {formatCompressionSizeRatio(item.ratio)}
-                    </span>
-                    <span className="score-runtime compression-size-value">
-                      {formatCompressionSizeRatio(item.maxRatio)}
-                    </span>
-                  </div>
-                ))}
+                {summary.rankings.map((item) => {
+                  const minRatio = formatCompressionSizeRatio(item.minRatio);
+                  const meanRatio = formatCompressionSizeRatio(item.ratio);
+                  const maxRatio = formatCompressionSizeRatio(item.maxRatio);
+                  return (
+                    <div className="compression-size-parquet-row" key={item.name}>
+                      <span className="visually-hidden">
+                        {`${displayFormat(item.name)}: minimum ${minRatio}, mean ${meanRatio}, maximum ${maxRatio}`}
+                      </span>
+                      <span aria-hidden="true" className="score-runtime compression-size-value">
+                        {minRatio}
+                      </span>
+                      <span aria-hidden="true" className="score-value compression-size-value">
+                        {meanRatio}
+                      </span>
+                      <span aria-hidden="true" className="score-runtime compression-size-value">
+                        {maxRatio}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

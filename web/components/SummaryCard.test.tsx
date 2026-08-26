@@ -141,7 +141,12 @@ describe('SummaryCard', () => {
     expect(html.indexOf('8.25x')).toBeLessThan(html.indexOf('0.55x'));
     expect(html).toContain('parquet');
     expect(html).toContain('lance');
+    expect(html).toContain('title="Not ranked: no Arrow measurement">—</span>');
     expect(html).toContain('class="score-value compression-size-value">—</span>');
+    expect(html).toContain(
+      'class="visually-hidden">vortex: minimum 0.55x, mean 0.45x, maximum 1.55x</span>',
+    );
+    expect(html).toContain('aria-hidden="true"');
     expect(html).not.toContain('GB');
   });
 
