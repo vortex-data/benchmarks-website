@@ -22,6 +22,12 @@ function formatCompressionSizeRatio(value: number): string {
   return `${Number(value.toPrecision(3))}x`;
 }
 
+function formatThroughput(valueGbS: number, operation: 'encode' | 'decode'): string {
+  return operation === 'encode'
+    ? `${(valueGbS * 1000).toFixed(0)} MB/s`
+    : `${valueGbS.toFixed(2)} GB/s`;
+}
+
 /**
  * The per-group summary card.
  *
@@ -76,7 +82,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                             <span className="score-value">{item.ratio.toFixed(2)}x</span>
                             {item.throughputGbS !== undefined && (
                               <span className="score-runtime">
-                                {item.throughputGbS.toFixed(2)} GB/s
+                                {formatThroughput(item.throughputGbS, item.operation)}
                               </span>
                             )}
                           </span>

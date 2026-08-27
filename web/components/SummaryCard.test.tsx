@@ -110,7 +110,12 @@ describe('SummaryCard', () => {
         },
         { name: 'parquet', operation: 'encode', ratio: 1 },
         { name: 'lance', operation: 'encode', ratio: 0.8 },
-        { name: 'vortex-file-compressed', operation: 'decode', ratio: 1.8 },
+        {
+          name: 'vortex-file-compressed',
+          operation: 'decode',
+          ratio: 1.8,
+          throughputGbS: 4.5,
+        },
         { name: 'parquet', operation: 'decode', ratio: 1 },
         { name: 'lance', operation: 'decode', ratio: 0.6 },
       ],
@@ -125,7 +130,9 @@ describe('SummaryCard', () => {
     expect(html).toContain('2.50x');
     expect(html).toContain('>lance</span>');
     expect(html).toContain('1.80x');
-    expect(html).toContain('6.25 GB/s');
+    expect(html).toContain('6250 MB/s');
+    expect(html).toContain('4.50 GB/s');
+    expect(html).not.toContain('6.25 GB/s');
     expect(html.match(/#1/g)).toHaveLength(2);
   });
 
