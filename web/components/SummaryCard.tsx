@@ -184,7 +184,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
       return (
         <section
           className="benchmark-scores-summary benchmark-scores-summary--random-access"
-          aria-label="Hot and Cold Random Access"
+          aria-label={`${panels.map((panel) => panel.title).join(' and ')} Random Access`}
         >
           <div
             className={
@@ -195,7 +195,11 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
           >
             {panels.map((panel) => (
               <section className="random-access-scores-panel" key={panel.title}>
-                <h3 className="scores-title" title={panel.description}>
+                <h3
+                  className="scores-title"
+                  title={panel.description}
+                  aria-label={`${panel.title}: ${panel.description}`}
+                >
                   {panel.title}
                 </h3>
                 <div className="scores-list random-access-scores-list">

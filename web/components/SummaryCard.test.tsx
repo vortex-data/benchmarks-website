@@ -27,6 +27,7 @@ describe('SummaryCard', () => {
       explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
     });
     expect(html).toContain('benchmark-scores-summary--random-access');
+    expect(html).toContain('aria-label="Hot and Cold Random Access"');
     expect(html).toContain('>Hot</h3>');
     expect(html).toContain('>Cold</h3>');
     expect(html).toContain('It does not clear the OS page cache.');
@@ -62,6 +63,8 @@ describe('SummaryCard', () => {
     expect(html).toContain('measured in 0 of 9 datasets');
     expect(html).toContain('<span class="score-runtime">—</span>');
     expect(html).toContain('random-access-scores--single');
+    expect(html).toContain('aria-label="Hot Random Access"');
+    expect(html).not.toContain('aria-label="Hot and Cold Random Access"');
     expect(html).not.toContain('>Cold</h3>');
   });
 
