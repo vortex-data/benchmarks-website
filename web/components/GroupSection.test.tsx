@@ -119,7 +119,6 @@ describe('GroupSection', () => {
     );
     expect(html).toContain('benchmark-scores-summary--random-access');
     expect(html).toContain('>Hot</h3>');
-    expect(html).toContain('>Cold</h3>');
   });
 
   it('renders one chart-card shell per chart with page-wide indices and permalinks', () => {

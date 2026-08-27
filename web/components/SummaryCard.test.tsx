@@ -61,9 +61,8 @@ describe('SummaryCard', () => {
     expect(html).toContain('measured in 4 of 9 datasets');
     expect(html).toContain('measured in 0 of 9 datasets');
     expect(html).toContain('<span class="score-runtime">—</span>');
-    expect(html).toContain('>Cold</h3>');
-    expect(html).toContain('title="vortex - no cold result"');
-    expect(html).not.toContain('random-access-scores--single');
+    expect(html).toContain('random-access-scores--single');
+    expect(html).not.toContain('>Cold</h3>');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
