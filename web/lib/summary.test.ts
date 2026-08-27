@@ -268,8 +268,9 @@ describe('timing summaries (shared ranking model)', () => {
     const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
     // Per-series freshness, not one global latest commit: a format that skipped
     // the newest commit stays on the card at its own last run.
-    expect(text).toContain('DISTINCT ON (r.dataset, r.format, r.open_mode)');
-    expect(text).toContain('ORDER BY r.dataset, r.format, r.open_mode, c.timestamp DESC');
+    expect(text).toContain("COALESCE(to_jsonb(r) ->> 'open_mode', 'cached')");
+    expect(text).not.toContain('r.open_mode');
+    expect(text).toContain('c.timestamp DESC');
     expect(text).not.toContain('MAX(c2.timestamp)');
   });
 

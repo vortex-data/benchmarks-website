@@ -410,20 +410,30 @@ function groupRandomAccessSamples(
  *    `lance`: a format that skipped the newest commit is compared as of when it
  *    last ran instead of vanishing from the card.
  *
- * `random_access_times` holds one row per `(commit_sha, dataset, format, open_mode)`.
- * It is the smallest fact table, so the per-series `DISTINCT ON` descent is cheap.
+ * After migration 010, `random_access_times` holds one row per
+ * `(commit_sha, dataset, format, open_mode)`. Before that migration, the JSON
+ * lookup returns NULL and the query treats every historical row as `cached`.
+ * The table is small, so the per-series `DISTINCT ON` descent is cheap.
  */
 async function collectRandomAccessSummary(): Promise<Summary | null> {
   const text = `
-    SELECT DISTINCT ON (r.dataset, r.format, r.open_mode)
+    SELECT DISTINCT ON (
+             r.dataset,
+             r.format,
+             COALESCE(to_jsonb(r) ->> 'open_mode', 'cached')
+           )
            r.dataset AS bucket,
            r.format AS series,
-           r.open_mode,
+           COALESCE(to_jsonb(r) ->> 'open_mode', 'cached') AS open_mode,
            r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
      WHERE r.value_ns > 0
-     ORDER BY r.dataset, r.format, r.open_mode, c.timestamp DESC, r.commit_sha DESC
+     ORDER BY r.dataset,
+              r.format,
+              COALESCE(to_jsonb(r) ->> 'open_mode', 'cached'),
+              c.timestamp DESC,
+              r.commit_sha DESC
   `;
   const rows = (
     await getPool().query<{

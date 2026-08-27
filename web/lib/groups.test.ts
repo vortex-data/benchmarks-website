@@ -320,6 +320,33 @@ describe.skipIf(!dockerAvailable())(
       expect(await res.json()).toEqual({ error: 'not_found', message: 'group not found' });
       expect(res.headers.get('cache-control')).toBeNull();
     });
+
+    it('treats legacy random-access rows without open_mode as hot access', async () => {
+      const pool = getPool();
+      await pool.query("DELETE FROM random_access_times WHERE open_mode = 'reopen'");
+      await pool.query('ALTER TABLE random_access_times DROP COLUMN open_mode');
+
+      const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+      if (summary === null || summary.type !== 'randomAccess') {
+        throw new Error('expected a randomAccess summary');
+      }
+      expect(summary.hotRankings.map((ranking) => ranking.name)).toEqual([
+        'vortex-file-compressed',
+        'parquet',
+        'arrow-ipc',
+      ]);
+      expect(summary.coldRankings).toEqual([]);
+
+      const group = expectDefined(
+        await collectGroupCharts({ k: 'RandomAccessGroup' }, parseCommitWindow(null)),
+        'legacy random access group',
+      );
+      expect(Object.keys(group.charts[0].series).sort()).toEqual([
+        'arrow-ipc:hot',
+        'parquet:hot',
+        'vortex-file-compressed:hot',
+      ]);
+    });
   },
 );
 

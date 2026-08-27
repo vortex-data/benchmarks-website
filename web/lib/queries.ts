@@ -533,11 +533,13 @@ async function collectRandomAccessChart(
   const params = new QueryParams();
   const text = `
     SELECT r.commit_sha,
-           r.format, r.open_mode, r.value_ns::float8 AS value
+           r.format,
+           COALESCE(to_jsonb(r) ->> 'open_mode', 'cached') AS open_mode,
+           r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
      WHERE r.dataset = ${params.bind(dataset)}${factWindowFilter(params, window)}
-     ORDER BY c.timestamp, r.format, r.open_mode
+     ORDER BY c.timestamp, r.format, open_mode
   `;
   const rows = (await getPool().query<RandomAccessRow>(text, params.values)).rows;
   for (const row of rows) {
