@@ -30,9 +30,8 @@ describe('SummaryCard', () => {
     expect(html).toContain('aria-label="Hot and Cold Random Access"');
     expect(html).toContain('>Hot</h3>');
     expect(html).toContain('>Cold</h3>');
-    expect(html).toContain('uses a newly opened accessor for each take');
+    expect(html).toContain('opens a new accessor inside each timed take');
     expect(html).toContain('It does not clear the OS page cache.');
-    expect(html).not.toContain('inside each timed take');
     expect(html).toContain('#1');
     expect(html).toContain('vortex');
     expect(html).toContain('1.50 ms');
