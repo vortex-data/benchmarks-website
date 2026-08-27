@@ -232,6 +232,14 @@ describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', 
   ] as const;
   const saved: Record<string, string | undefined> = {};
 
+  function configurePoolEnvironment(): void {
+    process.env.BENCH_DB_HOST = 'localhost';
+    process.env.BENCH_DB_NAME = 'bench';
+    process.env.BENCH_DB_USER = 'bench_reader';
+    process.env.BENCH_DB_PASSWORD = 'fixture-pw';
+    process.env.BENCH_DB_SSL = 'disable';
+  }
+
   beforeEach(async () => {
     for (const k of ENV_KEYS) saved[k] = process.env[k];
     await resetPool();
@@ -246,11 +254,7 @@ describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', 
   });
 
   it('uses the resolved timeouts as pool options', () => {
-    process.env.BENCH_DB_HOST = 'localhost';
-    process.env.BENCH_DB_NAME = 'bench';
-    process.env.BENCH_DB_USER = 'bench_reader';
-    process.env.BENCH_DB_PASSWORD = 'fixture-pw'; // skips the IAM/Signer path
-    process.env.BENCH_DB_SSL = 'disable'; // avoids the BENCH_DB_CA requirement
+    configurePoolEnvironment();
     process.env.BENCH_DB_IDLE_TIMEOUT_MS = '123456';
     process.env.BENCH_DB_STATEMENT_TIMEOUT_MS = '23456';
 
@@ -261,6 +265,17 @@ describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', 
     };
     expect(pool.options.idleTimeoutMillis).toBe(123456);
     expect(pool.options.statement_timeout).toBe(23456);
+  });
+
+  it('handles idle-client errors on the shared pool', () => {
+    configurePoolEnvironment();
+    const pool = getPool();
+    const error = new Error('fixture idle-client disconnect');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(pool.listenerCount('error')).toBe(1);
+    expect(() => pool.emit('error', error)).not.toThrow();
+    expect(log).toHaveBeenCalledWith('bench: idle PostgreSQL client error', error);
   });
 });
 
