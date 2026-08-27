@@ -173,7 +173,7 @@ export function passwordProvider(config: DbConfig): () => Promise<string> {
 }
 
 function createPool(config: DbConfig = readConfig()): Pool {
-  return new Pool({
+  const pool = new Pool({
     host: config.host,
     port: config.port,
     database: config.database,
@@ -184,6 +184,13 @@ function createPool(config: DbConfig = readConfig()): Pool {
     idleTimeoutMillis: config.idleTimeoutMillis,
     statement_timeout: config.statementTimeoutMillis,
   });
+  // pg emits idle-client connection failures on the pool. Without this
+  // listener, EventEmitter turns a recoverable disconnect into an uncaught
+  // exception. The pool removes the failed client and replaces it on demand.
+  pool.on('error', (error) => {
+    console.error('bench: idle PostgreSQL client error', error);
+  });
+  return pool;
 }
 
 // A single pool is shared across warm serverless invocations and survives

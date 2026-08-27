@@ -55,6 +55,15 @@ describe.skipIf(!dockerAvailable())('db pool roundtrip (testcontainers Postgres)
     expect(rows).toEqual([{ one: 1, greeting: 'hi' }]);
   });
 
+  it('handles idle-client errors on the shared pool', () => {
+    const pool = getPool();
+    const error = new Error('fixture idle-client disconnect');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => pool.emit('error', error)).not.toThrow();
+    expect(log).toHaveBeenCalledWith('bench: idle PostgreSQL client error', error);
+  });
+
   it('binds interpolated values as parameters rather than concatenating them', async () => {
     const hostile = '1); DROP TABLE x; --';
     const rows = await sql<{ v: string }>`SELECT ${hostile}::text AS v`;
