@@ -159,57 +159,73 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
       );
     }
     case 'randomAccess': {
+      const placeholderRankings =
+        summary.hotRankings.length > 0 ? summary.hotRankings : summary.coldRankings;
+      if (placeholderRankings.length === 0) {
+        return null;
+      }
       const panels = [
         {
-          title: 'Hot Access',
+          title: 'Hot',
           description: 'The benchmark reuses an accessor after a one-second warm-up.',
           rankings: summary.hotRankings,
         },
         {
-          title: 'Cold Access',
+          title: 'Cold',
           description:
             'The benchmark opens a new accessor inside each timed take. It does not clear the OS page cache.',
           rankings: summary.coldRankings,
         },
-      ].filter((panel) => panel.rankings.length > 0);
-      if (panels.length === 0) {
-        return null;
-      }
+      ];
       return (
         <section
           className="benchmark-scores-summary benchmark-scores-summary--random-access"
           aria-label="Hot and Cold Random Access"
         >
-          <div
-            className={
-              panels.length === 1
-                ? 'random-access-scores random-access-scores--single'
-                : 'random-access-scores'
-            }
-          >
-            {panels.map((panel) => (
-              <section className="random-access-scores-panel" key={panel.title}>
-                <h3 className="scores-title" title={panel.description}>
-                  {panel.title}
-                </h3>
-                <div className="scores-list random-access-scores-list">
-                  {panel.rankings.map((item, idx) => (
-                    <div className="score-item" key={item.name}>
-                      <span className="score-rank">#{idx + 1}</span>
-                      <span className="score-series" title={seriesTitle(item, 'datasets')}>
-                        {displaySeriesLabel(item.name)}
-                      </span>
-                      <span className="score-metrics">
-                        <span className="score-value">{item.score.toFixed(2)}x</span>
-                        <span className="score-runtime">
-                          {item.measured > 0 ? formatTimeNs(item.totalRuntime) : '—'}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
+          <div className="random-access-scores">
+            {panels.map((panel) => {
+              const isPlaceholder = panel.rankings.length === 0;
+              const rankings = isPlaceholder ? placeholderRankings : panel.rankings;
+              return (
+                <section className="random-access-scores-panel" key={panel.title}>
+                  <h3 className="scores-title" title={panel.description}>
+                    {panel.title}
+                  </h3>
+                  <div className="scores-list random-access-scores-list">
+                    {rankings.map((item, idx) => {
+                      const label = displaySeriesLabel(item.name);
+                      return (
+                        <div className="score-item" key={item.name}>
+                          <span className="score-rank">{isPlaceholder ? '—' : `#${idx + 1}`}</span>
+                          <span
+                            className="score-series"
+                            title={
+                              isPlaceholder
+                                ? `${label} - no ${panel.title.toLowerCase()} result`
+                                : seriesTitle(item, 'datasets')
+                            }
+                          >
+                            {label}
+                          </span>
+                          <span className="score-metrics">
+                            <span className="score-value">
+                              {isPlaceholder ? '—' : `${item.score.toFixed(2)}x`}
+                            </span>
+                            <span className="score-runtime">
+                              {isPlaceholder
+                                ? '—'
+                                : item.measured > 0
+                                  ? formatTimeNs(item.totalRuntime)
+                                  : '—'}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
           </div>
           <div className="scores-explanation">{summary.explanation}</div>
         </section>
