@@ -37,10 +37,10 @@ function versionFromFile(relPath: string, regex: RegExp, label: string): number 
 }
 
 describe('SCHEMA_VERSION', () => {
-  it('is pinned to the canonical value 2', () => {
+  it('is pinned to the canonical value 3', () => {
     // Canary: a deliberate version bump must also update this line (and the
     // anchor below), so an accidental cross-anchor bump cannot pass silently.
-    expect(SCHEMA_VERSION).toBe(2);
+    expect(SCHEMA_VERSION).toBe(3);
   });
 
   it('matches the anchor declaration documented in CONTRACT.md', () => {

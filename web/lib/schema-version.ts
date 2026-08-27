@@ -17,4 +17,4 @@
  * The read service surfaces it on `/health` so an operator can detect schema
  * skew between the served data and the producers.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;

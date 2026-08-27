@@ -762,6 +762,30 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   column-count: 1;
 }
 
+.random-access-scores {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.random-access-scores--single {
+  grid-template-columns: 1fr;
+}
+
+.random-access-scores-panel {
+  min-width: 0;
+}
+
+.random-access-scores-panel + .random-access-scores-panel {
+  border-left: 1px solid var(--border);
+  padding-left: 1.25rem;
+  margin-left: 1.25rem;
+}
+
+.random-access-scores-list {
+  column-count: 1;
+}
+
 .compression-size-scores {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1739,6 +1763,17 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
     grid-template-columns: 1fr;
   }
   .compression-scores-panel + .compression-scores-panel {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding-top: 0.75rem;
+    padding-left: 0;
+    margin-top: 0.75rem;
+    margin-left: 0;
+  }
+  .random-access-scores {
+    grid-template-columns: 1fr;
+  }
+  .random-access-scores-panel + .random-access-scores-panel {
     border-top: 1px solid var(--border);
     border-left: 0;
     padding-top: 0.75rem;

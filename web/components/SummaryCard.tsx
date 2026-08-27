@@ -22,6 +22,12 @@ function formatCompressionSizeRatio(value: number): string {
   return `${Number(value.toPrecision(3))}x`;
 }
 
+function formatThroughput(valueGbS: number, operation: 'encode' | 'decode'): string {
+  return operation === 'encode'
+    ? `${(valueGbS * 1000).toFixed(0)} MB/s`
+    : `${valueGbS.toFixed(2)} GB/s`;
+}
+
 /**
  * The per-group summary card.
  *
@@ -76,7 +82,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
                             <span className="score-value">{item.ratio.toFixed(2)}x</span>
                             {item.throughputGbS !== undefined && (
                               <span className="score-runtime">
-                                {item.throughputGbS.toFixed(2)} GB/s
+                                {formatThroughput(item.throughputGbS, item.operation)}
                               </span>
                             )}
                           </span>
@@ -158,18 +164,73 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
         </section>
       );
     }
+    case 'randomAccess': {
+      const panels = [
+        {
+          title: 'Hot',
+          description: 'The benchmark reuses an accessor after a one-second warm-up.',
+          rankings: summary.hotRankings,
+        },
+        {
+          title: 'Cold',
+          description:
+            'The benchmark opens a new accessor inside each timed take. It does not clear the OS page cache.',
+          rankings: summary.coldRankings,
+        },
+      ].filter((panel) => panel.rankings.length > 0);
+      if (panels.length === 0) {
+        return null;
+      }
+      return (
+        <section
+          className="benchmark-scores-summary benchmark-scores-summary--random-access"
+          aria-label={`${panels.map((panel) => panel.title).join(' and ')} Random Access`}
+        >
+          <div
+            className={
+              panels.length === 1
+                ? 'random-access-scores random-access-scores--single'
+                : 'random-access-scores'
+            }
+          >
+            {panels.map((panel) => (
+              <section className="random-access-scores-panel" key={panel.title}>
+                <h3
+                  className="scores-title"
+                  title={panel.description}
+                  aria-label={`${panel.title}: ${panel.description}`}
+                >
+                  {panel.title}
+                </h3>
+                <div className="scores-list random-access-scores-list">
+                  {panel.rankings.map((item, idx) => (
+                    <div className="score-item" key={item.name}>
+                      <span className="score-rank">#{idx + 1}</span>
+                      <span className="score-series" title={seriesTitle(item, 'datasets')}>
+                        {displaySeriesLabel(item.name)}
+                      </span>
+                      <span className="score-metrics">
+                        <span className="score-value">{item.score.toFixed(2)}x</span>
+                        <span className="score-runtime">
+                          {item.measured > 0 ? formatTimeNs(item.totalRuntime) : '—'}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+          <div className="scores-explanation">{summary.explanation}</div>
+        </section>
+      );
+    }
     case 'queryBenchmark':
-    case 'randomAccess':
     case 'vectorSearch':
       if (summary.rankings.length === 0) {
         return null;
       }
-      const coverageUnit =
-        summary.type === 'randomAccess'
-          ? 'datasets'
-          : summary.type === 'vectorSearch'
-            ? 'thresholds'
-            : 'queries';
+      const coverageUnit = summary.type === 'vectorSearch' ? 'thresholds' : 'queries';
       return (
         <section className="benchmark-scores-summary" aria-label={summary.title}>
           <h3 className="scores-title">{summary.title}</h3>

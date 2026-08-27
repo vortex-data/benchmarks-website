@@ -16,18 +16,22 @@ describe('SummaryCard', () => {
     expect(render(undefined)).toBe('');
   });
 
-  it('renders a randomAccess card with ranks, scores, and total runtimes', () => {
+  it('renders hot and cold random-access rankings', () => {
     const html = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: [
+      hotRankings: [
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 2, total: 2 },
         { name: 'parquet', score: 2, totalRuntime: 3_000_000, measured: 2, total: 2 },
       ],
+      coldRankings: [{ name: 'parquet', score: 1, totalRuntime: 4_000_000, measured: 2, total: 2 }],
       explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
     });
-    expect(html).toContain('class="benchmark-scores-summary"');
-    expect(html).toContain('<h3 class="scores-title">Random Access Performance</h3>');
+    expect(html).toContain('benchmark-scores-summary--random-access');
+    expect(html).toContain('aria-label="Hot and Cold Random Access"');
+    expect(html).toContain('>Hot</h3>');
+    expect(html).toContain('>Cold</h3>');
+    expect(html).toContain('opens a new accessor inside each timed take');
+    expect(html).toContain('It does not clear the OS page cache.');
     expect(html).toContain('#1');
     expect(html).toContain('vortex');
     expect(html).toContain('1.50 ms');
@@ -36,6 +40,7 @@ describe('SummaryCard', () => {
     expect(html).toContain('parquet');
     expect(html).toContain('3.00 ms');
     expect(html).toContain('2.00x');
+    expect(html).toContain('4.00 ms');
     expect(html).toContain(
       'Geomean of take time ratio to fastest across every dataset (lower is better)',
     );
@@ -44,12 +49,12 @@ describe('SummaryCard', () => {
   it('flags a partially measured series in its hover text', () => {
     const html = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: [
+      hotRankings: [
         { name: 'vortex', score: 1, totalRuntime: 1_500_000, measured: 9, total: 9 },
         { name: 'lance', score: 3, totalRuntime: 3_000_000, measured: 4, total: 9 },
         { name: 'arrow-ipc', score: 4, totalRuntime: 0, measured: 0, total: 9 },
       ],
+      coldRankings: [],
       explanation: 'e',
     });
     // The full-coverage series keeps a bare label; the partial one says so, so
@@ -58,10 +63,16 @@ describe('SummaryCard', () => {
     expect(html).toContain('measured in 4 of 9 datasets');
     expect(html).toContain('measured in 0 of 9 datasets');
     expect(html).toContain('<span class="score-runtime">—</span>');
+    expect(html).toContain('random-access-scores--single');
+    expect(html).toContain('aria-label="Hot Random Access"');
+    expect(html).not.toContain('aria-label="Hot and Cold Random Access"');
+    expect(html).not.toContain('>Cold</h3>');
   });
 
   it('renders nothing for a randomAccess card with no rankings', () => {
-    expect(render({ type: 'randomAccess', title: 't', rankings: [], explanation: 'e' })).toBe('');
+    expect(
+      render({ type: 'randomAccess', hotRankings: [], coldRankings: [], explanation: 'e' }),
+    ).toBe('');
   });
 
   it('uses two columns only for timing summaries with at least five results', () => {
@@ -74,8 +85,8 @@ describe('SummaryCard', () => {
     });
     const fourResults = render({
       type: 'randomAccess',
-      title: 'Random Access Performance',
-      rankings: Array.from({ length: 4 }, (_, index) => ranking(index)),
+      hotRankings: Array.from({ length: 4 }, (_, index) => ranking(index)),
+      coldRankings: [],
       explanation: 'lower is better',
     });
     const fiveResults = render({
@@ -85,7 +96,7 @@ describe('SummaryCard', () => {
       explanation: 'lower is better',
     });
 
-    expect(fourResults).toContain('class="scores-list"');
+    expect(fourResults).toContain('class="scores-list random-access-scores-list"');
     expect(fourResults).not.toContain('scores-list--split');
     expect(fiveResults).toContain('class="scores-list scores-list--split"');
   });
@@ -103,7 +114,12 @@ describe('SummaryCard', () => {
         },
         { name: 'parquet', operation: 'encode', ratio: 1 },
         { name: 'lance', operation: 'encode', ratio: 0.8 },
-        { name: 'vortex-file-compressed', operation: 'decode', ratio: 1.8 },
+        {
+          name: 'vortex-file-compressed',
+          operation: 'decode',
+          ratio: 1.8,
+          throughputGbS: 4.5,
+        },
         { name: 'parquet', operation: 'decode', ratio: 1 },
         { name: 'lance', operation: 'decode', ratio: 0.6 },
       ],
@@ -118,7 +134,9 @@ describe('SummaryCard', () => {
     expect(html).toContain('2.50x');
     expect(html).toContain('>lance</span>');
     expect(html).toContain('1.80x');
-    expect(html).toContain('6.25 GB/s');
+    expect(html).toContain('6250 MB/s');
+    expect(html).toContain('4.50 GB/s');
+    expect(html).not.toContain('6.25 GB/s');
     expect(html.match(/#1/g)).toHaveLength(2);
   });
 

@@ -137,8 +137,8 @@ export interface CompressionSizeRanking {
 export type Summary =
   | {
       type: 'randomAccess';
-      title: string;
-      rankings: SeriesRanking[];
+      hotRankings: SeriesRanking[];
+      coldRankings: SeriesRanking[];
       explanation: string;
     }
   | {
@@ -392,7 +392,7 @@ function groupRandomAccessSamples(
 }
 
 /**
- * The random-access rollup, over one summed bucket per dataset in the group.
+ * The random-access rollup, over one summed bucket per dataset and open mode.
  *
  * Two things this deliberately does NOT do, both of which the previous
  * implementation did:
@@ -400,7 +400,7 @@ function groupRandomAccessSamples(
  *  - It does not summarize one chart. The old query walked the group's chart
  *    links and returned the first that had rows -- in practice always the
  *    alphabetically first `dataset/pattern` -- then published its raw times
- *    under the group-wide title "Random Access Performance". The producer
+ *    as the group summary. The producer
  *    (`benchmarks/random-access-bench`) emits `dataset` as `{dataset}/{pattern}`
  *    plus the legacy bare `taxi`. Correlated and uniform medians are summed
  *    within each dataset. The bare `taxi` median joins the other taxi medians.
@@ -410,36 +410,58 @@ function groupRandomAccessSamples(
  *    `lance`: a format that skipped the newest commit is compared as of when it
  *    last ran instead of vanishing from the card.
  *
- * `random_access_times` holds one row per `(commit_sha, dataset, format)` and
- * is the smallest fact table, so the per-series `DISTINCT ON` descent is cheap.
+ * After migration 010, `random_access_times` holds one row per
+ * `(commit_sha, dataset, format, open_mode)`. Before that migration, the JSON
+ * lookup returns NULL and the query treats every historical row as `cached`.
+ * The table is small, so the per-series `DISTINCT ON` descent is cheap.
  */
 async function collectRandomAccessSummary(): Promise<Summary | null> {
   const text = `
-    SELECT DISTINCT ON (r.dataset, r.format)
+    SELECT DISTINCT ON (
+             r.dataset,
+             r.format,
+             COALESCE(to_jsonb(r) ->> 'open_mode', 'cached')
+           )
            r.dataset AS bucket,
            r.format AS series,
+           COALESCE(to_jsonb(r) ->> 'open_mode', 'cached') AS open_mode,
            r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
      WHERE r.value_ns > 0
-     ORDER BY r.dataset, r.format, c.timestamp DESC, r.commit_sha DESC
+     ORDER BY r.dataset,
+              r.format,
+              COALESCE(to_jsonb(r) ->> 'open_mode', 'cached'),
+              c.timestamp DESC,
+              r.commit_sha DESC
   `;
-  const rows = (await getPool().query<{ bucket: string; series: string; value: number }>(text))
-    .rows;
-  const grouped = groupRandomAccessSamples(rows);
-  const knownSeries = [...new Set(rows.map((row) => row.series))];
-  const rankings = rankSeries(grouped, compareCodeUnits, 0, 2, knownSeries).map((ranking) => ({
-    ...ranking,
-    totalRuntime:
-      ranking.measured > 0 ? ranking.totalRuntime / ranking.measured : ranking.totalRuntime,
-  }));
-  if (rankings.length === 0) {
+  const rows = (
+    await getPool().query<{
+      bucket: string;
+      series: string;
+      open_mode?: 'cached' | 'reopen';
+      value: number;
+    }>(text)
+  ).rows;
+  const rankingsFor = (openMode: 'cached' | 'reopen') => {
+    const modeRows = rows.filter((row) => (row.open_mode ?? 'cached') === openMode);
+    const grouped = groupRandomAccessSamples(modeRows);
+    const knownSeries = [...new Set(modeRows.map((row) => row.series))];
+    return rankSeries(grouped, compareCodeUnits, 0, 2, knownSeries).map((ranking) => ({
+      ...ranking,
+      totalRuntime:
+        ranking.measured > 0 ? ranking.totalRuntime / ranking.measured : ranking.totalRuntime,
+    }));
+  };
+  const hotRankings = rankingsFor('cached');
+  const coldRankings = rankingsFor('reopen');
+  if (hotRankings.length === 0 && coldRankings.length === 0) {
     return null;
   }
   return {
     type: 'randomAccess',
-    title: 'Random Access Performance',
-    rankings,
+    hotRankings,
+    coldRankings,
     explanation: 'Geomean of take time ratio to fastest across every dataset (lower is better)',
   };
 }

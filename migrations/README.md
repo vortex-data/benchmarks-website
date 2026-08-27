@@ -71,6 +71,8 @@ lexicographic order, which equals numeric order under this convention.
   existing objects through the schema deployment workflow.
 - `009_compression_uncompressed_size.sql` — adds the nullable Arrow memory size
   used for compression-ratio and logical-throughput estimates. Historical rows remain unchanged.
+- `010_random_access_open_mode.sql` — distinguishes cached-accessor and per-take reopen timings.
+  Historical rows receive the `cached` mode.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
 PR-1.4, `004` in PR-2.1, `005` in the Phase-4 operator-gate work (the v4

@@ -185,12 +185,17 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
       ['arrow-ipc', 1_500 + 3 * bias],
     ];
     for (const [format, valueNs] of randomAccess) {
-      await pool.query(
-        `INSERT INTO random_access_times
-           (measurement_id, commit_sha, dataset, format, value_ns, all_runtimes_ns)
-         VALUES ($1, $2, 'taxi', $3, $4, '{1}'::bigint[])`,
-        [mid(), sha, format, valueNs],
-      );
+      for (const [openMode, modeValueNs] of [
+        ['cached', valueNs],
+        ['reopen', valueNs * 10],
+      ] as const) {
+        await pool.query(
+          `INSERT INTO random_access_times
+             (measurement_id, commit_sha, dataset, format, open_mode, value_ns, all_runtimes_ns)
+           VALUES ($1, $2, 'taxi', $3, $4, $5, '{1}'::bigint[])`,
+          [mid(), sha, format, openMode, modeValueNs],
+        );
+      }
     }
     await pool.query(
       `INSERT INTO vector_search_runs
