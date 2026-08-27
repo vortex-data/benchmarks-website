@@ -174,7 +174,7 @@ export function SummaryCard({ summary }: { summary?: Summary }) {
         {
           title: 'Cold',
           description:
-            'The benchmark opens a new accessor inside each timed take. It does not clear the OS page cache.',
+            'The benchmark uses a newly opened accessor for each take. It does not clear the OS page cache.',
           rankings: summary.coldRankings,
         },
       ].filter((panel) => panel.rankings.length > 0);
