@@ -163,6 +163,23 @@ describe('seriesStyle', () => {
     expect(compact.color).not.toBe('#22c55e');
   });
 
+  it("keeps spiral-engine off datafusion's color on every shared format", () => {
+    for (const format of [
+      'vortex-file-compressed',
+      'vortex-compact',
+      'parquet',
+      'lance',
+      'arrow',
+    ]) {
+      const df = seriesStyle(`datafusion:${format}`, tag('datafusion', format));
+      const spiral = seriesStyle(`spiral-engine:${format}`, tag('spiral-engine', format));
+      const duck = seriesStyle(`duckdb:${format}`, tag('duckdb', format));
+      expect(spiral.color).not.toBe(df.color);
+      expect(spiral.color).not.toBe(duck.color);
+      expect(spiral.width).toBe(df.width);
+    }
+  });
+
   it('derives engine/format from the label when meta is absent', () => {
     expect(seriesStyle('datafusion:vortex-file-compressed', undefined).color).toBe('#ef4444');
   });

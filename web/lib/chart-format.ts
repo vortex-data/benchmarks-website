@@ -131,7 +131,8 @@ export function assignStableColors(
 // native format (gold). Everything else is muted and thin so it recedes and
 // never out-shouts the comparison -- lance is neutral slate (it is the least
 // important and is hidden by default soon), and `datafusion:arrow` keeps an
-// orange where it is still worth reading.
+// orange where it is still worth reading. A third engine (`spiral-engine`) takes
+// a third shade of each format so it never draws in datafusion's color.
 // ---------------------------------------------------------------------------
 
 /** The resolved line style for one series: a color and a width (px). */
@@ -151,18 +152,28 @@ const MUTED_WIDTH = 1.4;
  * an importance-tier width. The Vortex hero is the on-disk `vortex-file-compressed`
  * format -- red on datafusion, green on duckdb. The two lance engines carry
  * distinct slate shades so they stay apart. A pair not listed here falls through
- * to the per-format defaults in `FORMAT`. */
+ * to the per-format defaults in `FORMAT`, and those defaults reuse datafusion's
+ * colors -- so EVERY engine that reads a format must be pinned here, or it draws
+ * on top of datafusion in the same color. `spiral-engine` is pinned for that
+ * reason: teal / pink / deep sky blue / warm gray / rust, one step away from both
+ * the datafusion and duckdb shade of each format, and each readable on the light
+ * and the dark card. */
 const KEYED: Record<string, SeriesStyle> = {
   'datafusion:vortex-file-compressed': { color: '#ef4444', width: HERO_WIDTH }, // bright red
   'duckdb:vortex-file-compressed': { color: '#22c55e', width: HERO_WIDTH }, // neon green
+  'spiral-engine:vortex-file-compressed': { color: '#0d9488', width: HERO_WIDTH }, // teal
   'datafusion:vortex-compact': { color: '#a855f7', width: COMPACT_WIDTH }, // bright purple
   'duckdb:vortex-compact': { color: '#7e22ce', width: COMPACT_WIDTH }, // deep purple
+  'spiral-engine:vortex-compact': { color: '#db2777', width: COMPACT_WIDTH }, // pink
   'datafusion:parquet': { color: '#38bdf8', width: SECONDARY_WIDTH }, // light blue
   'duckdb:parquet': { color: '#2563eb', width: SECONDARY_WIDTH }, // dark(er) blue
+  'spiral-engine:parquet': { color: '#075985', width: SECONDARY_WIDTH }, // deep sky blue
   'duckdb:duckdb': { color: '#eab308', width: NATIVE_WIDTH }, // gold
   'datafusion:lance': { color: '#94a3b8', width: MUTED_WIDTH }, // neutral slate
   'duckdb:lance': { color: '#475569', width: MUTED_WIDTH }, // darker slate
+  'spiral-engine:lance': { color: '#78716c', width: MUTED_WIDTH }, // warm gray
   'datafusion:arrow': { color: '#f97316', width: MUTED_WIDTH }, // orange
+  'spiral-engine:arrow': { color: '#9a3412', width: MUTED_WIDTH }, // rust
 };
 
 /** Per-format defaults, used for the engine-less compression-time series and as
