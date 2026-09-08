@@ -54,13 +54,13 @@ warmth:
   on those routes: that header is consumed (and stripped) by Vercel's CDN alone at the highest
   precedence, so the CDN caches the rendered pages while browsers still revalidate every load.
 
-Verify on a live deployment with `curl -sI <url> | grep -i x-vercel-cache` (expect `MISS` then
-`HIT` within the five-minute fresh window). The deploy workflow runs this probe automatically after
-each deploy.
-When deployment protection returns 401/403 on a deployment URL the probe skips with a notice;
-production avoids that blind spot automatically once `BENCHMARKS_WEB_PROD_URL` is set (the probe
-then targets the public domain, where a 401/403 fails the run instead), so the manual check is
-only needed for protected previews and for production while the var is unset. One deliberate
+The deploy workflow verifies the expected build SHA through `/api/health`, a representative group
+and chart JSON response, the landing and chart pages, and a CDN `HIT` on repeated landing/chart-API
+requests. The probe has a three-minute deadline. Production uses the public `BENCH_SITE_BASE_URL`
+and fails verification on authentication errors or redirects. A protected preview reports
+verification as blocked, with no claim that its health, build identity, or caching passed.
+
+One deliberate
 divergence from the API routes: the `vercel.json` header rules apply to every response status,
 so an unknown `/chart/:slug` 404 follows the HTML page rule: five minutes fresh and then eligible
 for Vercel's one-day stale-while-revalidate window. That is acceptable for opaque, never-linked
@@ -70,25 +70,29 @@ were, the same HTML page rule would bound it).
 
 ## Deploys
 
-`.github/workflows/web-deploy.yml` runs the check suite on every PR touching
-`benchmarks-website/web/**`, `migrations/**` (the integration suite applies that DDL to its
-testcontainer), or the deploy tooling itself (the workflow and its `verify-cdn-cache` composite
-action), then deploys via the Vercel CLI (`vercel pull` / `vercel build` /
-`vercel deploy --prebuilt`): a preview deployment per same-repo PR, and a
-production deployment on each push to the deploy branch (`ct/bench-v4` during the migration;
-flips to `develop` when the migration branch squash-merges).
+`.github/workflows/web-ci.yml` and the deploy workflow run the same `web-checks` composite action:
+format, lint, build without database credentials, and tests with Docker. The standalone required
+check remains `format, lint, build, test`. A deployment waits for its own check job, then checks
+out and builds that exact `github.sha`. PRs use the event's merge commit, including stacked PRs
+whose base is another branch. Fork PRs run correctness CI but do not receive deployment credentials.
+
+Pushes to `develop` deploy production. Manual production runs are limited to `develop`.
+Both triggers share one production queue and let an active deploy finish verification.
+New preview runs can cancel older previews of the same event and ref.
+Same-repository PRs touching the app, migrations, scripts, or check/deploy tooling produce previews.
+The Vercel CLI builds on the runner and uploads the prebuilt output. `BENCH_BUILD_SHA` is embedded
+in that output so the uncached health endpoint identifies the checked-out build.
 
 One-time operator setup:
 
-1. Create the Vercel project: Framework Next.js, **Root Directory `benchmarks-website/web`**,
+1. Create the Vercel project: Framework Next.js, **Root Directory `web/`**,
    and the GitHub integration **disabled** (deploys are CLI-driven from CI; the integration
    would double-deploy).
 2. Set the GitHub repo secret `VERCEL_TOKEN` (a Vercel deploy token) and repo variables
-   `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` (from the Vercel project settings). Optionally set the
-   repo variable `BENCHMARKS_WEB_PROD_URL` to the public production URL, as a full
-   `https://<domain>` with no trailing slash: deployment protection never covers the public
-   domain, so the post-deploy CDN probe can verify caching through it even when deployment URLs
-   are protected (and a 401/403 from it fails the deploy run rather than skipping).
+   `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` (from the Vercel project settings). Set the
+   repo variable `BENCH_SITE_BASE_URL` to the public production URL as `https://<domain>`.
+   The existing keep-warm workflow uses the same variable. Production deployment requires it
+   before uploading and verifies the public domain after deployment.
 3. Configure `BENCH_DB_*` on the Vercel project (Production and Preview environments). Two open
    wiring choices are deliberately left to this step, per environment:
    - **Endpoint**: the RDS Proxy (`vortex-bench-proxy.proxy-*.us-east-1.rds.amazonaws.com`) is
