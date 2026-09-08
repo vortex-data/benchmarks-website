@@ -76,9 +76,9 @@ Caches handle *repeat* reads; they do nothing for the first read after an idle
 gap, which is the dominant cost on this site. Two crons keep the hot path warm:
 
 - **The warmer — a Vercel-native cron, `*/2 * * * *` on `/api/health`**
-  ([`web/vercel.json`](../../web/vercel.json)). `/api/health` fans out a
-  `COUNT(*)` per table, so each ping warms the function instance *and* several
-  pooled Postgres connections. Paired with it, the `pg` pool's idle timeout is
+  ([`web/vercel.json`](../../web/vercel.json)). `/api/health` runs one
+  `SELECT 1`, so each ping checks connectivity and warms one pooled Postgres connection
+  without scanning benchmark tables. Paired with it, the `pg` pool's idle timeout is
   raised to **5 minutes** (`BENCH_DB_IDLE_TIMEOUT_MS`, default `300000`, in
   [`web/lib/db.ts`](../../web/lib/db.ts)) — comfortably longer than the 2-minute
   ping gap, so a connection minted by one ping survives to serve a visitor who

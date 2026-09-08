@@ -87,7 +87,7 @@ constant-time.
 | `GET /api/groups` | all groups + their chart links (structure only) |
 | `GET /api/group/{slug}` | one group with every chart's payload inlined |
 | `GET /api/chart/{slug}` | one chart's payload |
-| `GET /api/health` | liveness: build SHA, schema version, per-table row counts, latest commit timestamp (never cached) |
+| `GET /api/health` | database liveness via `SELECT 1`, build SHA, and schema version (200/503, never cached) |
 
 The `?n=` query parameter selects the commit window: `?n=all` is uncapped;
 numeric values are floored to 1 and clamped to `MAX_NUMERIC_COMMIT_WINDOW = 1000`

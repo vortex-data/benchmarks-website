@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { describe, expect, it } from 'vitest';
-import { FAMILIES, familyForChartKind, familyForGroupKind, HEALTH_TABLES } from './families';
+import { FAMILIES, familyForChartKind, familyForGroupKind } from './families';
 
 describe('FAMILIES registry', () => {
   it('lists the five fact tables in family.rs declaration order', () => {
@@ -44,18 +44,5 @@ describe('family lookups', () => {
     for (const family of FAMILIES) {
       expect(familyForGroupKind(family.groupKind)).toBe(family);
     }
-  });
-});
-
-describe('HEALTH_TABLES', () => {
-  it('is commits plus every family table, in sorted (BTreeMap) order', () => {
-    expect(HEALTH_TABLES).toEqual([
-      'commits',
-      'compression_sizes',
-      'compression_times',
-      'query_measurements',
-      'random_access_times',
-      'vector_search_runs',
-    ]);
   });
 });

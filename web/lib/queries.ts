@@ -27,10 +27,7 @@
  *  - `commits.timestamp` is rendered with the same `YYYY-MM-DD HH24:MI:SS+00`
  *    text the DuckDB `CAST(timestamp AS VARCHAR)` produced, so the wire-compat
  *    `commits[].timestamp` field stays byte-identical for the (always
- *    whole-second, UTC) git commit timestamps. This differs from `/health`'s
- *    `latest_commit_timestamp` (a non-contract smoke-test field that uses an
- *    ISO `T...Z` rendering); the chart timestamp is consumed by `chart-init.js`
- *    and is preserved exactly.
+ *    whole-second, UTC) git commit timestamps.
  */
 
 import { getPool } from './db';
