@@ -177,8 +177,10 @@ describe('compression summaries', () => {
     }
     expect(calls[0][0]).toContain('latest_uncompressed_sizes');
     for (const [text] of calls) {
-      expect(text).toContain("to_jsonb(s) ->> 'uncompressed_bytes'");
-      expect(text).not.toMatch(/\bs\.uncompressed_bytes\b/);
+      // Read the column directly: `to_jsonb(s)` serialized every row (a
+      // whole-table CPU cost on every summary) just to reach one field.
+      expect(text).toMatch(/\bs\.uncompressed_bytes\b/);
+      expect(text).not.toContain('to_jsonb(');
     }
     expect(calls[0][0]).toContain('LEFT JOIN latest_uncompressed_sizes');
     expect(calls[1][0]).toContain('latest_uncompressed_sizes');
@@ -268,8 +270,12 @@ describe('timing summaries (shared ranking model)', () => {
     const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
     // Per-series freshness, not one global latest commit: a format that skipped
     // the newest commit stays on the card at its own last run.
-    expect(text).toContain("COALESCE(to_jsonb(r) ->> 'open_mode', 'cached')");
-    expect(text).not.toContain('r.open_mode');
+    // `open_mode` is read as a plain column. The previous `to_jsonb(r)` lookup
+    // serialized every row's `all_runtimes_ns` (tens of thousands of samples
+    // per random-access row), which is what pushed this statement past the
+    // server-side statement timeout in production.
+    expect(text).toContain('r.open_mode');
+    expect(text).not.toContain('to_jsonb(');
     expect(text).toContain('c.timestamp DESC');
     expect(text).not.toContain('MAX(c2.timestamp)');
   });

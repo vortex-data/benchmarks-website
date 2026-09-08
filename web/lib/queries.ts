@@ -534,7 +534,7 @@ async function collectRandomAccessChart(
   const text = `
     SELECT r.commit_sha,
            r.format,
-           COALESCE(to_jsonb(r) ->> 'open_mode', 'cached') AS open_mode,
+           r.open_mode AS open_mode,
            r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)

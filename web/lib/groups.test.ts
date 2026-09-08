@@ -321,10 +321,9 @@ describe.skipIf(!dockerAvailable())(
       expect(res.headers.get('cache-control')).toBeNull();
     });
 
-    it('treats legacy random-access rows without open_mode as hot access', async () => {
+    it('treats cached-only random-access rows as hot access', async () => {
       const pool = getPool();
       await pool.query("DELETE FROM random_access_times WHERE open_mode = 'reopen'");
-      await pool.query('ALTER TABLE random_access_times DROP COLUMN open_mode');
 
       const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
       if (summary === null || summary.type !== 'randomAccess') {
@@ -339,7 +338,7 @@ describe.skipIf(!dockerAvailable())(
 
       const group = expectDefined(
         await collectGroupCharts({ k: 'RandomAccessGroup' }, parseCommitWindow(null)),
-        'legacy random access group',
+        'cached-only random access group',
       );
       expect(Object.keys(group.charts[0].series).sort()).toEqual([
         'arrow-ipc:hot',
