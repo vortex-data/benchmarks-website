@@ -679,8 +679,8 @@ describe('clampRangeWindow', () => {
 });
 
 describe('hover-dwell prefetch constants', () => {
-  it('dwell is a deliberate ~600ms pause, not an accidental sweep', () => {
-    expect(HOVER_DWELL_MS).toBe(600);
+  it('dwell is a deliberate one-second pause, not an accidental sweep', () => {
+    expect(HOVER_DWELL_MS).toBe(1000);
   });
 
   it('hover-prefetch priority sits above background (0) and below direct interaction', () => {

@@ -227,7 +227,7 @@ describe('Chart opt-in full-history loading', () => {
     vi.useFakeTimers();
     card.dispatchEvent(new Event('pointerenter'));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(599);
+      await vi.advanceTimersByTimeAsync(999);
     });
     expect(fetchCalls.some((u) => u.includes('n=all'))).toBe(false);
     await act(async () => {
@@ -246,7 +246,7 @@ describe('Chart opt-in full-history loading', () => {
     });
     card.dispatchEvent(new Event('pointerleave'));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(1000);
     });
     expect(fetchCalls.some((u) => u.includes('n=all'))).toBe(false);
   });
@@ -275,7 +275,7 @@ describe('Chart opt-in full-history loading', () => {
     vi.useFakeTimers();
     card.dispatchEvent(new Event('pointerenter'));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(700);
+      await vi.advanceTimersByTimeAsync(1100);
     });
     expect(fetchCalls.filter((u) => u.includes('n=all')).length).toBe(before);
   });
@@ -315,7 +315,7 @@ describe('Chart opt-in full-history loading', () => {
     vi.useFakeTimers();
     card.dispatchEvent(new Event('pointerenter'));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(601);
+      await vi.advanceTimersByTimeAsync(1001);
     });
     vi.useRealTimers();
     // The `?n=all` upgrade drains through the full-history queue across several

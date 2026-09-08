@@ -182,7 +182,7 @@ per-chart signal:
   windowed → loading → complete → error/retry state machine, so the partial view
   is never silent and a failed load is retryable. Charts with fewer than 100
   commits are born complete and show no chip.
-- **A ~600 ms hover *dwell*** (`HOVER_DWELL_MS`) starts a silent prefetch at a
+- **A ~1000 ms hover *dwell*** (`HOVER_DWELL_MS`) starts a silent prefetch at a
   mid-tier priority (`HOVER_PREFETCH_PRIORITY = 500_000`, between idle background
   `0` and a direct `INTERACTION_FULL_PRIORITY = 1_000_000`), so a deliberate
   hover has data ready while a mouse sweep across the page fetches nothing.
