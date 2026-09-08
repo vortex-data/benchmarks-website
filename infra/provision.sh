@@ -31,8 +31,8 @@
 #   7. Creates the RDS Proxy `vortex-bench-proxy` in front of the RDS
 #      instance, also with IAM auth.
 #   8. Creates two GitHub Actions OIDC IAM roles trusted to
-#      `token.actions.githubusercontent.com` for the `vortex-data/vortex` repo
-#      (branches `develop` + `ct/bench-v4`), each scoped to an instance dbuser:
+#      `token.actions.githubusercontent.com`, each scoped to its repository
+#      develop branch and one instance dbuser:
 #        - `GitHubBenchmarkSchemaRole`: `rds-db:connect` on the `migrator`
 #          Postgres user (schema deploys; migration 002 in PR-1.3).
 #        - `GitHubBenchmarkIngestRole`: `rds-db:connect` on the `bench_ingest`
@@ -69,7 +69,8 @@ readonly DB_MASTER_USERNAME="${DB_MASTER_USERNAME:-postgres}"
 readonly SCHEMA_ROLE_NAME="${SCHEMA_ROLE_NAME:-GitHubBenchmarkSchemaRole}"
 readonly INGEST_ROLE_NAME="${INGEST_ROLE_NAME:-GitHubBenchmarkIngestRole}"
 readonly PROXY_ROLE_NAME="${PROXY_ROLE_NAME:-vortex-bench-proxy-role}"
-readonly GITHUB_REPO="${GITHUB_REPO:-vortex-data/vortex}"
+readonly SCHEMA_GITHUB_REPO="${SCHEMA_GITHUB_REPO:-vortex-data/benchmarks-website}"
+readonly INGEST_GITHUB_REPO="${INGEST_GITHUB_REPO:-vortex-data/vortex}"
 # Postgres role created by migrations/002 in PR-1.3; the OIDC role's
 # rds-db:connect permission is scoped to this user. NOT overridable (unlike the
 # other names above): the role name is hardcoded in migrations/002
@@ -409,36 +410,29 @@ ensure_oidc_provider() {
     OIDC_PROVIDER_ARN="$provider_arn"
 }
 
+# Exact subjects deliberately exclude PRs, tags, and retired migration branches.
+# Reprovisioning replaces trust with this declared policy, including on existing roles.
+github_trust_policy() {
+    jq -n --arg account "$TARGET_ACCOUNT" --arg repo "$1" '{
+      Version: "2012-10-17",
+      Statement: [{
+        Effect: "Allow",
+        Principal: {Federated: ("arn:aws:iam::" + $account + ":oidc-provider/token.actions.githubusercontent.com")},
+        Action: "sts:AssumeRoleWithWebIdentity",
+        Condition: {StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": ("repo:" + $repo + ":ref:refs/heads/develop")
+        }}
+      }]
+    }'
+}
+
 ensure_schema_role() {
     log "Step 6: GitHub Actions OIDC role ${SCHEMA_ROLE_NAME}."
     ensure_oidc_provider
 
-    # Trust-policy sub-claim is scoped to the specific branches the
-    # schema-deploy.yml workflow runs on (`develop` + `ct/bench-v4`); this
-    # restriction is the gate against unauthorized OIDC role assumption. A
-    # `schema-deploy` GitHub Environment / manual-approval gate was deliberately
-    # declined per the 2026-05-29 deploy-model decision (it only re-confirms the
-    # authorization already given at PR merge; execution safety comes from the
-    # per-PR testcontainer migration test), NOT deferred for lack of repo-admin.
     local trust_policy
-    trust_policy=$(cat <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Federated": "${OIDC_PROVIDER_ARN}"},
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"},
-      "StringLike":   {"token.actions.githubusercontent.com:sub": [
-        "repo:${GITHUB_REPO}:ref:refs/heads/develop",
-        "repo:${GITHUB_REPO}:ref:refs/heads/ct/bench-v4"
-      ]}
-    }
-  }]
-}
-EOF
-)
+    trust_policy=$(github_trust_policy "$SCHEMA_GITHUB_REPO")
 
     if SCHEMA_ROLE_ARN=$(aws iam get-role --role-name "$SCHEMA_ROLE_NAME" \
             --query 'Role.Arn' --output text 2>/dev/null); then
@@ -493,29 +487,8 @@ ensure_ingest_role() {
     log "Step 6b: GitHub Actions OIDC role ${INGEST_ROLE_NAME}."
     ensure_oidc_provider
 
-    # Same branch-scoped trust as the schema role: the Phase-2 dual-write CI
-    # workflows (bench.yml / sql-benchmarks.yml / v3-commit-metadata.yml) ingest on
-    # push to `develop`, plus `ct/bench-v4` during the migration's dual-write soak.
-    # The sub-claim restriction is the gate against unauthorized role assumption.
     local trust_policy
-    trust_policy=$(cat <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Federated": "${OIDC_PROVIDER_ARN}"},
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"},
-      "StringLike":   {"token.actions.githubusercontent.com:sub": [
-        "repo:${GITHUB_REPO}:ref:refs/heads/develop",
-        "repo:${GITHUB_REPO}:ref:refs/heads/ct/bench-v4"
-      ]}
-    }
-  }]
-}
-EOF
-)
+    trust_policy=$(github_trust_policy "$INGEST_GITHUB_REPO")
 
     if INGEST_ROLE_ARN=$(aws iam get-role --role-name "$INGEST_ROLE_NAME" \
             --query 'Role.Arn' --output text 2>/dev/null); then
@@ -631,6 +604,18 @@ EOF
 # -----------------------------------------------------------------------------
 
 main() {
+    [ -z "${GITHUB_REPO+x}" ] || die "GITHUB_REPO was replaced by SCHEMA_GITHUB_REPO and INGEST_GITHUB_REPO."
+    if [ "$#" -gt 0 ]; then
+        if [ "$#" -eq 2 ] && [ "$1" = "--print-trust" ]; then
+            case "$2" in
+                schema) github_trust_policy "$SCHEMA_GITHUB_REPO" ;;
+                ingest) github_trust_policy "$INGEST_GITHUB_REPO" ;;
+                *) die "Expected schema or ingest." ;;
+            esac
+            return
+        fi
+        die "Usage: provision.sh [--print-trust schema|ingest]"
+    fi
     verify_prereqs
     discover_default_vpc
     ensure_db_subnet_group
