@@ -410,28 +410,25 @@ function groupRandomAccessSamples(
  *    `lance`: a format that skipped the newest commit is compared as of when it
  *    last ran instead of vanishing from the card.
  *
- * After migration 010, `random_access_times` holds one row per
- * `(commit_sha, dataset, format, open_mode)`. Before that migration, the JSON
- * lookup returns NULL and the query treats every historical row as `cached`.
- * The table is small, so the per-series `DISTINCT ON` descent is cheap.
+ * Since migration 010, `random_access_times` holds one row per
+ * `(commit_sha, dataset, format, open_mode)`, with historical rows backfilled
+ * as `cached`. `open_mode` must be read as a plain column: an earlier
+ * `to_jsonb(r) ->> 'open_mode'` lookup serialized every row, including its
+ * `all_runtimes_ns` array of tens of thousands of samples, which made this
+ * statement exceed the server-side statement timeout in production. The
+ * table is small, so the per-series `DISTINCT ON` descent is cheap.
  */
 async function collectRandomAccessSummary(): Promise<Summary | null> {
   const text = `
-    SELECT DISTINCT ON (
-             r.dataset,
-             r.format,
-             COALESCE(to_jsonb(r) ->> 'open_mode', 'cached')
-           )
+    SELECT DISTINCT ON (r.dataset, r.format, r.open_mode)
            r.dataset AS bucket,
            r.format AS series,
-           COALESCE(to_jsonb(r) ->> 'open_mode', 'cached') AS open_mode,
+           r.open_mode AS open_mode,
            r.value_ns::float8 AS value
       FROM random_access_times r
       JOIN commits c USING (commit_sha)
      WHERE r.value_ns > 0
-     ORDER BY r.dataset,
-              r.format,
-              COALESCE(to_jsonb(r) ->> 'open_mode', 'cached'),
+     ORDER BY r.dataset, r.format, r.open_mode,
               c.timestamp DESC,
               r.commit_sha DESC
   `;
@@ -645,11 +642,11 @@ async function compressionSamples(): Promise<
     ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
+             s.uncompressed_bytes::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
        WHERE s.format = $4
-         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
+         AND s.uncompressed_bytes::float8 > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC
@@ -765,7 +762,7 @@ async function compressionSizeSamples(): Promise<
              c.timestamp AS ts,
              s.commit_sha AS commit_sha,
              s.value_bytes::float8 AS value_bytes,
-             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes,
+             s.uncompressed_bytes::float8 AS uncompressed_bytes,
              p.value_bytes::float8 AS parquet_bytes,
              s.dataset AS dataset,
              s.dataset_variant AS dataset_variant
@@ -818,11 +815,11 @@ async function compressionSizeSamples(): Promise<
     ), latest_uncompressed_sizes AS (
       SELECT DISTINCT ON (s.dataset, s.dataset_variant)
              s.dataset, s.dataset_variant,
-             (to_jsonb(s) ->> 'uncompressed_bytes')::float8 AS uncompressed_bytes
+             s.uncompressed_bytes::float8 AS uncompressed_bytes
         FROM compression_sizes s
         JOIN commits c ON c.commit_sha = s.commit_sha
        WHERE s.format = $4
-         AND (to_jsonb(s) ->> 'uncompressed_bytes')::float8 > 0
+         AND s.uncompressed_bytes::float8 > 0
          AND lower(s.dataset) NOT LIKE '%wide table%'
        ORDER BY s.dataset, s.dataset_variant NULLS FIRST,
                 c.timestamp DESC, s.commit_sha DESC
