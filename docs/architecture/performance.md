@@ -78,11 +78,14 @@ gap, which is the dominant cost on this site. Two crons keep the hot path warm:
 - **The warmer — a Vercel-native cron, `*/2 * * * *` on `/api/health`**
   ([`web/vercel.json`](../../web/vercel.json)). `/api/health` fans out a
   `COUNT(*)` per table, so each ping warms the function instance *and* several
-  pooled Postgres connections. Paired with it, the `pg` pool's idle timeout is
-  raised to **5 minutes** (`BENCH_DB_IDLE_TIMEOUT_MS`, default `300000`, in
-  [`web/lib/db.ts`](../../web/lib/db.ts)) — comfortably longer than the 2-minute
-  ping gap, so a connection minted by one ping survives to serve a visitor who
-  lands between pings, rather than re-paying the IAM-token + TLS connect.
+  pooled Postgres connections. The pool uses a **5-second** idle timeout
+  (`BENCH_DB_IDLE_TIMEOUT_MS`, default `5000`, in
+  [`web/lib/db.ts`](../../web/lib/db.ts)). Its
+  [`attachDatabasePool`](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package#attachdatabasepool)
+  hook keeps the invocation alive while pg closes idle clients before suspension.
+  Connections can serve concurrent requests, but expire between cron pings.
+  Existing deployments that override the previous 5-minute default must lower the override
+  to benefit from prompt cleanup. `0` is rejected because it disables idle cleanup.
 - **The GitHub `web-keep-warm` workflow** (see
   [deploy-and-infra.md](deploy-and-infra.md)) pings the public read
   surface on its own schedule and doubles as a lightweight uptime check
