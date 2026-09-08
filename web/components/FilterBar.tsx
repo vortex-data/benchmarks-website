@@ -31,7 +31,7 @@ import {
  * indicator. Every change re-paints the chips (via the store subscription, here
  * and in every chart island) and syncs the URL `?engine=`/`?format=` allowlists
  * with `history.replaceState`, so a refresh or share preserves the view; the
- * params are omitted when a row is fully active so the no-filter URL is clean.
+ * params are omitted only when the active set matches the defaults.
  */
 export function FilterBar({
   universe,
@@ -39,10 +39,10 @@ export function FilterBar({
   initialFormats,
 }: {
   universe: FilterUniverse;
-  /** URL `?engine=` allowlist parsed server-side; empty means no filter. */
-  initialEngines: string[];
-  /** URL `?format=` allowlist parsed server-side; empty means no filter. */
-  initialFormats: string[];
+  /** URL `?engine=` allowlist parsed server-side; null uses defaults; empty hides all. */
+  initialEngines: string[] | null;
+  /** URL `?format=` allowlist parsed server-side; null uses defaults; empty hides all. */
+  initialFormats: string[] | null;
 }) {
   const [open, setOpen] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
@@ -101,8 +101,8 @@ export function FilterBar({
   }, [open]);
 
   const hiddenCount =
-    Math.max(0, universe.engines.length - activeEngines.length) +
-    Math.max(0, universe.formats.length - activeFormats.length);
+    universe.engines.filter((engine) => !activeEngines.includes(engine)).length +
+    universe.formats.filter((format) => !activeFormats.includes(format)).length;
 
   const onChipClick = (dim: 'engine' | 'format', value: string): void => {
     toggleGlobalFilterValue(dim, value);
@@ -204,8 +204,8 @@ function FilterRow({
 
 /**
  * Mirror the active filter onto the URL as `?engine=`/`?format=` allowlists via
- * `history.replaceState`. A param is emitted only when its active set is a
- * strict subset of the universe; an all-active row leaves the URL clean.
+ * `history.replaceState`. Only default selections omit their parameter. An
+ * empty selection writes an empty value, and all formats includes Lance.
  */
 function syncFilterUrl(): void {
   if (!window.history?.replaceState) {
@@ -214,12 +214,12 @@ function syncFilterUrl(): void {
   const { universe, active } = getGlobalFilterSnapshot();
   const url = new URL(window.location.href);
   syncDimensionUrl(url, 'engine', active.engines, universe.engines);
-  syncDimensionUrl(url, 'format', active.formats, universe.formats);
+  syncDimensionUrl(url, 'format', active.formats, seedActiveFormats(null, universe.formats));
   window.history.replaceState(null, '', url.toString());
 }
 
-function syncDimensionUrl(url: URL, paramName: string, active: string[], universe: string[]): void {
-  if (active.length < universe.length) {
+function syncDimensionUrl(url: URL, paramName: string, active: string[], defaults: string[]): void {
+  if (active.length !== defaults.length || !defaults.every((value) => active.includes(value))) {
     url.searchParams.set(paramName, active.join(','));
   } else {
     url.searchParams.delete(paramName);

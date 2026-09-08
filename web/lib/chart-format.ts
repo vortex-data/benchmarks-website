@@ -956,12 +956,12 @@ export interface GlobalFilterState {
 /**
  * Parse one `?engine=` / `?format=` CSV param into a deduplicated, trimmed
  * allowlist, the TypeScript port of the Axum server's `parse_csv`. Empty
- * entries (e.g. trailing commas) are dropped; an absent or entirely empty param
- * means "no filter active" and is encoded as an empty array.
+ * entries (e.g. trailing commas) are dropped. An absent parameter returns null
+ * for the defaults; a present empty parameter returns an empty active set.
  */
-export function parseFilterCsv(raw: string | null | undefined): string[] {
+export function parseFilterCsv(raw: string | null | undefined): string[] | null {
   if (raw === null || raw === undefined) {
-    return [];
+    return null;
   }
   const seen = new Set<string>();
   const out: string[] = [];
@@ -977,16 +977,16 @@ export function parseFilterCsv(raw: string | null | undefined): string[] {
 }
 
 /**
- * Translate a URL allowlist into the active chip set. An empty allowlist means
- * "no filter", so every chip in the universe is active. A non-empty allowlist
+ * Translate a URL allowlist into the active chip set. A null allowlist uses
+ * the defaults, with every engine active. An explicit allowlist
  * is taken verbatim, even if a chip has since been added or removed from the
  * universe, which keeps stale URLs deterministic.
  */
 export function seedActiveFromAllowlist(
-  allowlist: readonly string[],
+  allowlist: readonly string[] | null,
   universe: readonly string[],
 ): string[] {
-  return allowlist.length === 0 ? [...universe] : [...allowlist];
+  return allowlist === null ? [...universe] : [...allowlist];
 }
 
 /**
@@ -1005,10 +1005,10 @@ export const DEFAULT_HIDDEN_FORMATS: readonly string[] = ['lance'];
  * [`seedActiveFromAllowlist`], which the engine dimension still uses directly.
  */
 export function seedActiveFormats(
-  allowlist: readonly string[],
+  allowlist: readonly string[] | null,
   universe: readonly string[],
 ): string[] {
-  if (allowlist.length > 0) {
+  if (allowlist !== null) {
     return [...allowlist];
   }
   return universe.filter((format) => !DEFAULT_HIDDEN_FORMATS.includes(format));
@@ -1016,9 +1016,9 @@ export function seedActiveFormats(
 
 /**
  * Whether a series passes the global filter. A series is hidden when its
- * engine/format dimension is filtered (the active set is a strict subset of
- * the universe) AND its tag is not in the active set. Series without an engine
- * tag (e.g. compression-time `format:op` series) are unaffected by the engine
+ * engine/format dimension has initialized chips and its tag is not in the active
+ * set. Series without an engine tag (e.g. compression-time `format:op` series)
+ * are unaffected by the engine
  * filter, symmetric for format, so hiding an engine does not nuke charts that
  * have no engine dimension.
  */
@@ -1028,18 +1028,10 @@ export function seriesPassesFilter(
   universe: FilterUniverse,
 ): boolean {
   const m = meta ?? {};
-  if (
-    m.engine &&
-    active.engines.length < universe.engines.length &&
-    !active.engines.includes(m.engine)
-  ) {
+  if (m.engine && universe.engines.length > 0 && !active.engines.includes(m.engine)) {
     return false;
   }
-  if (
-    m.format &&
-    active.formats.length < universe.formats.length &&
-    !active.formats.includes(m.format)
-  ) {
+  if (m.format && universe.formats.length > 0 && !active.formats.includes(m.format)) {
     return false;
   }
   return true;

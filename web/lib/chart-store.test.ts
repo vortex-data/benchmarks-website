@@ -35,7 +35,7 @@ const UNIVERSE = { engines: ['datafusion', 'duckdb'], formats: ['parquet', 'vort
 
 describe('global filter store', () => {
   it('seeds every chip active with no URL allowlist', () => {
-    initGlobalFilter(UNIVERSE, [], []);
+    initGlobalFilter(UNIVERSE, null, null);
     const snap = getGlobalFilterSnapshot();
     expect(snap.active.engines).toEqual(['datafusion', 'duckdb']);
     expect(snap.active.formats).toEqual(['parquet', 'vortex']);
@@ -45,15 +45,15 @@ describe('global filter store', () => {
     const universe = { engines: ['datafusion', 'duckdb'], formats: ['parquet', 'vortex', 'lance'] };
     // No `?format=` allowlist: lance is excluded by default (it is far slower, so
     // it buries the comparison); the rest of the format universe stays active.
-    initGlobalFilter(universe, [], []);
+    initGlobalFilter(universe, null, null);
     expect(getGlobalFilterSnapshot().active.formats).toEqual(['parquet', 'vortex']);
     // An explicit allowlist is taken verbatim, so a URL can pin lance back on.
-    initGlobalFilter(universe, [], ['lance']);
+    initGlobalFilter(universe, null, ['lance']);
     expect(getGlobalFilterSnapshot().active.formats).toEqual(['lance']);
   });
 
   it('seeds verbatim from a URL allowlist and toggles chips independently', () => {
-    initGlobalFilter(UNIVERSE, ['duckdb'], []);
+    initGlobalFilter(UNIVERSE, ['duckdb'], null);
     expect(getGlobalFilterSnapshot().active.engines).toEqual(['duckdb']);
 
     toggleGlobalFilterValue('engine', 'datafusion');
@@ -72,7 +72,7 @@ describe('global filter store', () => {
   });
 
   it('notifies subscribers with a fresh snapshot reference per mutation', () => {
-    initGlobalFilter(UNIVERSE, [], []);
+    initGlobalFilter(UNIVERSE, null, null);
     const before = getGlobalFilterSnapshot();
     let notified = 0;
     const unsubscribe = subscribeGlobalFilter(() => {
@@ -89,7 +89,7 @@ describe('global filter store', () => {
 
 describe('per-group store', () => {
   beforeEach(() => {
-    initGlobalFilter(UNIVERSE, [], []);
+    initGlobalFilter(UNIVERSE, null, null);
   });
 
   it('restores a URL filter without discarding hydrated series metadata', () => {
@@ -129,7 +129,7 @@ describe('per-group store', () => {
   it('restores a globally hidden series with a local visible override', () => {
     const slug = 'group-global-fallback';
     const universe = { ...UNIVERSE, formats: [...UNIVERSE.formats, 'lance'] };
-    initGlobalFilter(universe, [], []);
+    initGlobalFilter(universe, null, null);
     noteGroupSeries(slug, { lance: { format: 'lance' } });
 
     expect(groupSeriesIsVisible(getGroupSnapshot(slug), 'lance')).toBe(false);
@@ -164,7 +164,7 @@ describe('per-group store', () => {
   it('uses a macro to restore every match hidden by the global default', () => {
     const slug = 'group-global-macro';
     const universe = { ...UNIVERSE, formats: [...UNIVERSE.formats, 'lance'] };
-    initGlobalFilter(universe, [], []);
+    initGlobalFilter(universe, null, null);
     noteGroupSeries(slug, {
       'datafusion:lance': { engine: 'datafusion', format: 'lance' },
       'duckdb:lance': { engine: 'duckdb', format: 'lance' },
