@@ -63,8 +63,8 @@ async function HomeContent({
   initialFormats,
   initialGroupFilter,
 }: {
-  initialEngines: string[];
-  initialFormats: string[];
+  initialEngines: string[] | null;
+  initialFormats: string[] | null;
   initialGroupFilter: GroupFilter | null;
 }) {
   const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);

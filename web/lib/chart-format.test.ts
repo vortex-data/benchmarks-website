@@ -576,12 +576,13 @@ describe('filter helpers', () => {
 
   it('parses CSV allowlists with trimming and dedupe', () => {
     expect(parseFilterCsv('duckdb, datafusion,duckdb,,')).toEqual(['duckdb', 'datafusion']);
-    expect(parseFilterCsv(null)).toEqual([]);
+    expect(parseFilterCsv(null)).toBeNull();
+    expect(parseFilterCsv(undefined)).toBeNull();
     expect(parseFilterCsv('')).toEqual([]);
   });
 
   it('seeds the active set from the allowlist or the whole universe', () => {
-    expect(seedActiveFromAllowlist([], universe.engines)).toEqual(['duckdb', 'datafusion']);
+    expect(seedActiveFromAllowlist(null, universe.engines)).toEqual(['duckdb', 'datafusion']);
     // A non-empty allowlist is verbatim, even when stale against the universe.
     expect(seedActiveFromAllowlist(['gone'], universe.engines)).toEqual(['gone']);
   });
@@ -589,11 +590,11 @@ describe('filter helpers', () => {
   it('seeds formats with lance hidden by default, but honors an explicit allowlist', () => {
     const formats = ['vortex', 'parquet', 'lance'];
     // No allowlist: lance is dropped from the default active set.
-    expect(seedActiveFormats([], formats)).toEqual(['vortex', 'parquet']);
+    expect(seedActiveFormats(null, formats)).toEqual(['vortex', 'parquet']);
     // An explicit allowlist is verbatim, so a `?format=` URL can pin lance on.
     expect(seedActiveFormats(['lance'], formats)).toEqual(['lance']);
     // A universe without lance is unaffected.
-    expect(seedActiveFormats([], ['vortex', 'parquet'])).toEqual(['vortex', 'parquet']);
+    expect(seedActiveFormats(null, ['vortex', 'parquet'])).toEqual(['vortex', 'parquet']);
   });
 
   it('hides a series only when its own dimension is filtered', () => {
@@ -607,9 +608,18 @@ describe('filter helpers', () => {
     expect(seriesPassesFilter(undefined, active, universe)).toBe(true);
   });
 
-  it('treats an all-active dimension as unfiltered', () => {
+  it('checks explicit membership after the filter universe initializes', () => {
     const active = { engines: ['duckdb', 'datafusion'], formats: ['vortex', 'parquet'] };
     expect(seriesPassesFilter({ engine: 'duckdb' }, active, universe)).toBe(true);
+    expect(seriesPassesFilter({ engine: 'new-engine' }, active, universe)).toBe(false);
+    expect(seriesPassesFilter({ format: 'new-format' }, active, universe)).toBe(false);
+    expect(
+      seriesPassesFilter(
+        { engine: 'duckdb' },
+        { engines: [], formats: [] },
+        { engines: [], formats: [] },
+      ),
+    ).toBe(true);
   });
 
   it('applies per-group overrides before the fallback visibility', () => {

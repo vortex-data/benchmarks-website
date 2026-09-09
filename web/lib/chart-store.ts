@@ -316,14 +316,14 @@ export function getGlobalFilterSnapshot(): GlobalFilterSnapshot {
 
 /**
  * Seed the store from server-provided props: the chip universe plus the URL
- * `?engine=`/`?format=` allowlists (empty allowlist means every chip active).
+ * `?engine=`/`?format=` allowlists (null uses the defaults; empty hides all).
  * Called by the filter bar on mount and again on soft navigation, so the store
  * tracks the URL state of the page that most recently mounted it.
  */
 export function initGlobalFilter(
   universe: FilterUniverse,
-  engineAllowlist: readonly string[],
-  formatAllowlist: readonly string[],
+  engineAllowlist: readonly string[] | null,
+  formatAllowlist: readonly string[] | null,
 ): void {
   globalSnapshot = {
     universe: { engines: [...universe.engines], formats: [...universe.formats] },

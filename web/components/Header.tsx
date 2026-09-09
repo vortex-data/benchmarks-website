@@ -37,8 +37,8 @@ export function Header({
   initialFormats,
 }: {
   universe?: FilterUniverse;
-  initialEngines?: string[];
-  initialFormats?: string[];
+  initialEngines?: string[] | null;
+  initialFormats?: string[] | null;
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const [nextTheme, setNextTheme] = useState<'light' | 'dark'>('light');
@@ -159,8 +159,8 @@ export function Header({
             {showFilters && (
               <FilterBar
                 universe={universe}
-                initialEngines={initialEngines ?? []}
-                initialFormats={initialFormats ?? []}
+                initialEngines={initialEngines ?? null}
+                initialFormats={initialFormats ?? null}
               />
             )}
             {/* Mobile-only GitHub link rendered inside the hamburger panel;
