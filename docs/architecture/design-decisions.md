@@ -158,7 +158,7 @@ v3 auto-queued a background `?n=all` fetch for every chart on group open; on a
 22-chart group that queued tens of megabytes nobody asked for, contending with
 the windowed fetches a user actually waits on. v4 removed the auto-warmup: full
 history loads only on a deliberate per-chart signal — a window-chip click, a
-~600ms hover dwell, or a pan/zoom into the unloaded region.
+~1000ms hover dwell, or a pan/zoom into the unloaded region.
 → `web/components/Chart.tsx`, `web/lib/chart-format.ts`.
 
 **Bounded windows render on the full-length virtual x-axis.**

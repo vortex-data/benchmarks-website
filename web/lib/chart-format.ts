@@ -45,7 +45,7 @@ export const HOVER_PREFETCH_PRIORITY = 500_000;
 /** How long the pointer must rest on one chart card before the silent
  * full-history prefetch starts, so a mouse sweep across the page fetches
  * nothing while a deliberate hover has data ready by the time the user acts. */
-export const HOVER_DWELL_MS = 600;
+export const HOVER_DWELL_MS = 1000;
 /** Per-fetch timeout (ms) for the chart `?n=100` / `?n=all` requests. A stalled
  * request aborts at this bound instead of spinning the loading indicator
  * forever. 30s is generous headroom over a cold Vercel function first-hit
