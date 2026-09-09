@@ -7,9 +7,8 @@
  * Each of the five fact tables is a [`Family`] that ties together the Postgres
  * table name and the chart and group slug prefixes. The read endpoints
  * dispatch through this registry rather than hand-listing the families, so the
- * slug prefixes (consumed by [`./slug`]) and the table-name set (consumed by
- * `/health`'s row counts; the read queries name their tables in static SQL)
- * have a single source of truth, exactly as the Rust `family.rs` "spine" does.
+ * slug prefixes consumed by [`./slug`] have a single source of truth. The read
+ * queries name their tables in static SQL.
  *
  * The order of [`FAMILIES`] mirrors `family.rs`'s `FAMILIES` constant and the
  * DDL apply order in `migrations/001_initial_schema.sql`.
@@ -112,16 +111,6 @@ export function familyForGroupKind(kind: GroupKind): Family {
   }
   return family;
 }
-
-/**
- * The Postgres tables surfaced by `/health`, in `BTreeMap` (sorted) order to
- * match the Rust `HealthResponse.row_counts` wire shape: the `commits` dim
- * table plus every [`FAMILIES`] table name, sorted lexicographically.
- */
-export const HEALTH_TABLES: readonly string[] = [
-  'commits',
-  ...FAMILIES.map((f) => f.tableName),
-].sort();
 
 /**
  * Byte-order string comparison matching Rust `String::cmp` (and so `BTreeMap`
