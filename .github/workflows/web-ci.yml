@@ -38,6 +38,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check infrastructure trust policies offline
+        working-directory: .
+        run: |
+          bash -n infra/provision.sh
+          python3 -m unittest discover -s infra/tests -v
+
       # pnpm must exist before setup-node so its `cache: pnpm` can resolve the store.
       - name: Install pnpm
         run: npm install -g "pnpm@${PNPM_VERSION}"
