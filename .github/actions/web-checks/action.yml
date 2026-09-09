@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Web checks
+description: Format, lint, build without a database, and run the test suite.
+runs:
+  using: composite
+  steps:
+    - name: Check infrastructure trust policies offline
+      shell: bash
+      run: |
+        bash -n infra/provision.sh
+        python3 -m unittest discover -s infra/tests -v
+    - name: Install pnpm
+      shell: bash
+      run: npm install -g pnpm@11.5.2
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: pnpm
+        cache-dependency-path: web/pnpm-lock.yaml
+    - name: Install dependencies
+      shell: bash
+      working-directory: web
+      run: pnpm install --frozen-lockfile
+    - name: Format check
+      shell: bash
+      working-directory: web
+      run: pnpm format:check
+    - name: Lint
+      shell: bash
+      working-directory: web
+      run: pnpm lint
+    - name: Build without database credentials
+      shell: bash
+      working-directory: web
+      run: pnpm build
+    - name: Require Docker for the integration suite
+      shell: bash
+      run: docker info > /dev/null
+    - name: Install uv for migration tests
+      uses: spiraldb/actions/.github/actions/setup-uv@0.18.6
+      with:
+        sync: false
+    - name: Test migration runner
+      shell: bash
+      run: uv run --no-project --with 'psycopg[binary]>=3.2' python -m unittest discover -s scripts/tests -v
+    - name: Test deployment verification
+      shell: bash
+      run: node --test scripts/tests/verify-web-deploy.test.mjs
+    - name: Test
+      shell: bash
+      working-directory: web
+      run: pnpm test
