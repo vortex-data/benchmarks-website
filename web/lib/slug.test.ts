@@ -91,7 +91,8 @@ describe('group slug round-trip', () => {
 
   it.each(['disk', '', null, 1])('rejects invalid random-access storage %s', (storage) => {
     const slug =
-      'rag.' + Buffer.from(JSON.stringify({ k: 'RandomAccessGroup', storage })).toString('base64url');
+      'rag.' +
+      Buffer.from(JSON.stringify({ k: 'RandomAccessGroup', storage })).toString('base64url');
     expect(() => groupKeyFromSlug(slug)).toThrow();
   });
 

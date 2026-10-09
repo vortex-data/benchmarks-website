@@ -479,7 +479,8 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       'Random Access (S3)',
     ]);
     for (const [index, storage] of (['nvme', 's3'] as const).entries()) {
-      const datasets = storage === 'nvme' ? ['taxi', 'taxi/uniform'] : ['taxi-s3', 'taxi-s3/uniform'];
+      const datasets =
+        storage === 'nvme' ? ['taxi', 'taxi/uniform'] : ['taxi-s3', 'taxi-s3/uniform'];
       expect(groupKeyFromSlug(groups[index].slug)).toEqual({ k: 'RandomAccessGroup', storage });
       expect(groups[index].charts).toEqual(
         datasets.map((dataset) => ({
@@ -499,10 +500,15 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
       });
     }
 
-    await getPool().query("DELETE FROM random_access_times WHERE dataset IN ('taxi', 'taxi/uniform')");
+    await getPool().query(
+      "DELETE FROM random_access_times WHERE dataset IN ('taxi', 'taxi/uniform')",
+    );
     expect((await collectGroups()).map((group) => group.name)).toEqual(['Random Access (S3)']);
     expect(
-      await collectGroupCharts({ k: 'RandomAccessGroup', storage: 'nvme' }, parseCommitWindow(null)),
+      await collectGroupCharts(
+        { k: 'RandomAccessGroup', storage: 'nvme' },
+        parseCommitWindow(null),
+      ),
     ).toBeNull();
   });
 

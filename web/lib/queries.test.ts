@@ -352,7 +352,11 @@ describe('compareGroupSortKey canonical group ordering (no DB)', () => {
     const sorted = ['cohere-large-10m / partitioned', 'Random Access (NVMe)', 'Compression'].sort(
       compareGroupSortKey,
     );
-    expect(sorted).toEqual(['Compression', 'Random Access (NVMe)', 'cohere-large-10m / partitioned']);
+    expect(sorted).toEqual([
+      'Compression',
+      'Random Access (NVMe)',
+      'cohere-large-10m / partitioned',
+    ]);
   });
 
   it('places the appian group directly after both fineweb groups', () => {
