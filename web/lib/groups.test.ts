@@ -64,11 +64,11 @@ describe.skipIf(!dockerAvailable())(
 
     it('orders groups by the canonical GROUP_ORDER, with unknown groups last', async () => {
       const groups = await collectGroups();
-      // `Random Access` is directly before Clickbench in GROUP_ORDER.
+      // Random-access sections precede Clickbench in GROUP_ORDER.
       expect(groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'Random Access',
+        'Random Access (NVMe)',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
@@ -77,7 +77,7 @@ describe.skipIf(!dockerAvailable())(
     it('computes the random-access summary (geomean ratio to fastest)', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
-        groups.find((g) => g.name === 'Random Access')?.summary,
+        groups.find((g) => g.name === 'Random Access (NVMe)')?.summary,
         'random access summary',
       );
       if (summary.type !== 'randomAccess') {
@@ -210,7 +210,7 @@ describe.skipIf(!dockerAvailable())(
 
     it('attaches editorial descriptions and omits them where v2 has none', async () => {
       const groups = await collectGroups();
-      expect(groups.find((g) => g.name === 'Random Access')?.description).toBe(
+      expect(groups.find((g) => g.name === 'Random Access (NVMe)')?.description).toBe(
         'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
       );
       expect(groups.find((g) => g.name === 'TPC-H (NVMe) (SF=1)')?.description).toBe(
@@ -234,7 +234,7 @@ describe.skipIf(!dockerAvailable())(
       expect(body.groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'Random Access',
+        'Random Access (NVMe)',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
@@ -325,7 +325,7 @@ describe.skipIf(!dockerAvailable())(
       const pool = getPool();
       await pool.query("DELETE FROM random_access_times WHERE open_mode = 'reopen'");
 
-      const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+      const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
       if (summary === null || summary.type !== 'randomAccess') {
         throw new Error('expected a randomAccess summary');
       }
@@ -337,7 +337,10 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.coldRankings).toEqual([]);
 
       const group = expectDefined(
-        await collectGroupCharts({ k: 'RandomAccessGroup' }, parseCommitWindow(null)),
+        await collectGroupCharts(
+          { k: 'RandomAccessGroup', storage: 'nvme' },
+          parseCommitWindow(null),
+        ),
         'cached-only random access group',
       );
       expect(Object.keys(group.charts[0].series).sort()).toEqual([
@@ -463,6 +466,46 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     );
   }
 
+  it('splits random-access groups, summaries, and chart bundles by storage', async () => {
+    const sha = 'a'.repeat(40);
+    await insertCommit(sha, '2026-04-23T12:00:00Z');
+    for (const dataset of ['taxi', 'taxi/uniform', 'taxi-s3', 'taxi-s3/uniform']) {
+      await insertRandomAccess(sha, dataset, 'vortex', 100);
+    }
+
+    const groups = await collectGroups();
+    expect(groups.map((group) => group.name)).toEqual([
+      'Random Access (NVMe)',
+      'Random Access (S3)',
+    ]);
+    for (const [index, storage] of (['nvme', 's3'] as const).entries()) {
+      const datasets = storage === 'nvme' ? ['taxi', 'taxi/uniform'] : ['taxi-s3', 'taxi-s3/uniform'];
+      expect(groupKeyFromSlug(groups[index].slug)).toEqual({ k: 'RandomAccessGroup', storage });
+      expect(groups[index].charts).toEqual(
+        datasets.map((dataset) => ({
+          name: dataset,
+          slug: chartKeyToSlug({ k: 'RandomAccess', dataset }),
+        })),
+      );
+      const bundle = await collectGroupCharts(
+        { k: 'RandomAccessGroup', storage },
+        parseCommitWindow(null),
+      );
+      expect(bundle?.charts.map((chart) => chart.display_name)).toEqual(datasets);
+      expect(bundle?.summary).toMatchObject({
+        type: 'randomAccess',
+        hotRankings: [{ name: 'vortex', totalRuntime: 200, measured: 1, total: 1 }],
+        coldRankings: [],
+      });
+    }
+
+    await getPool().query("DELETE FROM random_access_times WHERE dataset IN ('taxi', 'taxi/uniform')");
+    expect((await collectGroups()).map((group) => group.name)).toEqual(['Random Access (S3)']);
+    expect(
+      await collectGroupCharts({ k: 'RandomAccessGroup', storage: 'nvme' }, parseCommitWindow(null)),
+    ).toBeNull();
+  });
+
   it('ranks random access over every chart, not the alphabetically first one', async () => {
     // The bug this pins: the old summary walked the group's chart links and
     // published the first populated chart's raw times under the group-wide
@@ -484,7 +527,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 1_000_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {
@@ -512,7 +555,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(newer, 'taxi', 'vortex-file-compressed', 1_000_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {
@@ -536,7 +579,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 50_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {

@@ -31,7 +31,8 @@ const GROUP_KEYS: GroupKey[] = [
   { k: 'QueryGroup', dataset: 'tpch', dataset_variant: null, scale_factor: '1', storage: 'nvme' },
   { k: 'CompressionTimeGroup' },
   { k: 'CompressionSizeGroup' },
-  { k: 'RandomAccessGroup' },
+  { k: 'RandomAccessGroup', storage: 'nvme' },
+  { k: 'RandomAccessGroup', storage: 's3' },
   { k: 'VectorSearchGroup', dataset: 'cohere', layout: 'partitioned' },
 ];
 
@@ -81,6 +82,17 @@ describe('group slug round-trip', () => {
     }).split('.')[0];
     const groupPrefix = groupKeyToSlug({ k: 'CompressionTimeGroup' }).split('.')[0];
     expect(chartPrefix).not.toBe(groupPrefix);
+  });
+
+  it('resolves legacy random-access group slugs to NVMe', () => {
+    const legacy = 'rag.' + Buffer.from('{"k":"RandomAccessGroup"}').toString('base64url');
+    expect(groupKeyFromSlug(legacy)).toEqual({ k: 'RandomAccessGroup', storage: 'nvme' });
+  });
+
+  it.each(['disk', '', null, 1])('rejects invalid random-access storage %s', (storage) => {
+    const slug =
+      'rag.' + Buffer.from(JSON.stringify({ k: 'RandomAccessGroup', storage })).toString('base64url');
+    expect(() => groupKeyFromSlug(slug)).toThrow();
   });
 
   it('rejects a malformed group slug', () => {

@@ -16,6 +16,7 @@
  * a slug back gives a strongly-typed [`ChartKey`] or [`GroupKey`].
  */
 
+import type { RandomAccessStorage } from './random-access';
 import { familyForChartKind, familyForGroupKind, type ChartKind, type GroupKind } from './families';
 
 /** Strongly-typed chart key parsed from a slug. Discriminated on `k`. */
@@ -44,7 +45,7 @@ export type GroupKey =
     }
   | { k: 'CompressionTimeGroup' }
   | { k: 'CompressionSizeGroup' }
-  | { k: 'RandomAccessGroup' }
+  | { k: 'RandomAccessGroup'; storage: RandomAccessStorage }
   | { k: 'VectorSearchGroup'; dataset: string; layout: string };
 
 const CHART_KINDS: readonly ChartKind[] = [
@@ -234,9 +235,11 @@ export function groupKeyToSlug(key: GroupKey): string {
     case 'VectorSearchGroup':
       ordered = { k: key.k, dataset: key.dataset, layout: key.layout };
       break;
+    case 'RandomAccessGroup':
+      ordered = { k: key.k, storage: key.storage };
+      break;
     case 'CompressionTimeGroup':
     case 'CompressionSizeGroup':
-    case 'RandomAccessGroup':
       ordered = { k: key.k };
       break;
   }
@@ -265,9 +268,16 @@ export function groupKeyFromSlug(slug: string): GroupKey {
       };
     case 'VectorSearchGroup':
       return { k: kind, dataset: reqString(obj, 'dataset'), layout: reqString(obj, 'layout') };
+    case 'RandomAccessGroup': {
+      // Group links from before the storage split resolve to the NVMe section.
+      const storage = obj.storage === undefined ? 'nvme' : reqString(obj, 'storage');
+      if (storage !== 'nvme' && storage !== 's3') {
+        throw new Error('random-access group storage must be nvme or s3');
+      }
+      return { k: kind, storage };
+    }
     case 'CompressionTimeGroup':
     case 'CompressionSizeGroup':
-    case 'RandomAccessGroup':
       return { k: kind };
   }
 }
