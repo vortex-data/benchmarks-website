@@ -694,6 +694,8 @@ const GROUP_ORDER: readonly string[] = [
   'TPC-H (NVMe) (SF=100)',
   'TPC-H (S3) (SF=100)',
   'TPC-DS (NVMe) (SF=1)',
+  'TPC-DS (NVMe) (SF=10)',
+  'TPC-DS (NVMe) (SF=100)',
   'Statistical and Population Genetics',
   'PolarSignals Profiling',
   'fineweb [nvme]',
