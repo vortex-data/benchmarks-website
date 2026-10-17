@@ -42,7 +42,7 @@ describe('groupDocPath', () => {
     expect(groupDocPath({ k: 'CompressionTimeGroup' })).toBe('benchmarks/compress-bench/README.md');
     // Two measurement kinds of one benchmark, so one doc.
     expect(groupDocPath({ k: 'CompressionSizeGroup' })).toBe('benchmarks/compress-bench/README.md');
-    expect(groupDocPath({ k: 'RandomAccessGroup' })).toBe(
+    expect(groupDocPath({ k: 'RandomAccessGroup', storage: 'nvme' })).toBe(
       'benchmarks/random-access-bench/README.md',
     );
   });

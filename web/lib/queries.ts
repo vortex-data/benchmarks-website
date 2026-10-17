@@ -31,6 +31,7 @@
  */
 
 import { getPool } from './db';
+import { randomAccessStorage } from './random-access';
 import { groupDescription } from './descriptions';
 import type { FilterUniverse } from './chart-format';
 import { compareCodeUnits, FAMILIES, type GroupKind } from './families';
@@ -685,7 +686,8 @@ export interface GroupChartsResponse {
 const GROUP_ORDER: readonly string[] = [
   'Compression',
   'Compression Size',
-  'Random Access',
+  'Random Access (NVMe)',
+  'Random Access (S3)',
   'Clickbench',
   'TPC-H (NVMe) (SF=1)',
   'TPC-H (S3) (SF=1)',
@@ -1005,7 +1007,7 @@ async function collectCompressionSizeGroup(): Promise<Group[]> {
   ];
 }
 
-/** The single `Random Access` group, or `[]` if the fact table is empty. */
+/** One random-access group per storage backend, omitting empty sections. */
 async function collectRandomAccessGroup(): Promise<Group[]> {
   const text = `
     SELECT DISTINCT dataset
@@ -1013,14 +1015,23 @@ async function collectRandomAccessGroup(): Promise<Group[]> {
      ORDER BY dataset
   `;
   const rows = (await getPool().query<{ dataset: string }>(text)).rows;
-  if (rows.length === 0) {
-    return [];
+  const groups: Group[] = [];
+  for (const storage of ['nvme', 's3'] as const) {
+    const charts: ChartLink[] = rows
+      .filter((row) => randomAccessStorage(row.dataset) === storage)
+      .map((row) => ({
+        name: row.dataset,
+        slug: chartKeyToSlug({ k: 'RandomAccess', dataset: row.dataset }),
+      }));
+    if (charts.length > 0) {
+      groups.push({
+        name: `Random Access (${storage === 'nvme' ? 'NVMe' : 'S3'})`,
+        slug: groupKeyToSlug({ k: 'RandomAccessGroup', storage }),
+        charts,
+      });
+    }
   }
-  const charts: ChartLink[] = rows.map((row) => ({
-    name: row.dataset,
-    slug: chartKeyToSlug({ k: 'RandomAccess', dataset: row.dataset }),
-  }));
-  return [{ name: 'Random Access', slug: groupKeyToSlug({ k: 'RandomAccessGroup' }), charts }];
+  return groups;
 }
 
 type VectorSearchGroupRow = { dataset: string; layout: string; threshold: number };

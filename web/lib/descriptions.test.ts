@@ -7,6 +7,12 @@ import { groupDescription } from './descriptions';
 // Pure string logic, so these run without Docker. They mirror the Rust
 // `descriptions.rs` unit tests verbatim (the v2 contract).
 describe('groupDescription', () => {
+  it.each(['NVMe', 'S3'])('describes random access on %s', (storage) => {
+    expect(groupDescription(`Random Access (${storage})`)).toBe(
+      `Tests performance of selecting arbitrary row indices from a file on ${storage} storage`,
+    );
+  });
+
   it('returns the v2 static descriptions verbatim', () => {
     expect(groupDescription('Random Access')).toBe(
       'Tests performance of selecting arbitrary row indices from a file on NVMe storage',

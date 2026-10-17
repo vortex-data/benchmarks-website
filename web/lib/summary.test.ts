@@ -198,6 +198,38 @@ describe('timing summaries (shared ranking model)', () => {
     query.mockReset();
   });
 
+  it.each(['cached', 'reopen'] as const)(
+    'ranks NVMe and S3 independently for %s access',
+    async (openMode) => {
+      query.mockResolvedValue({
+        rows: [
+          { bucket: 'taxi', series: 'vortex', value: 100, open_mode: openMode },
+          { bucket: 'taxi', series: 'lance', value: 200, open_mode: openMode },
+          { bucket: 'taxi', series: 'arrow-ipc', value: 300, open_mode: openMode },
+          { bucket: 'taxi-s3', series: 'vortex', value: 20_000, open_mode: openMode },
+          { bucket: 'taxi-s3', series: 'lance', value: 10_000, open_mode: openMode },
+          { bucket: 'taxi-s3/uniform', series: 'vortex', value: 40_000, open_mode: openMode },
+          { bucket: 'taxi-s3/uniform', series: 'lance', value: 20_000, open_mode: openMode },
+        ],
+      });
+      const nvme = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
+      const s3 = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 's3' });
+      if (nvme?.type !== 'randomAccess' || s3?.type !== 'randomAccess') {
+        throw new Error('expected randomAccess summaries');
+      }
+      const panel = openMode === 'cached' ? 'hotRankings' : 'coldRankings';
+      expect(nvme[panel].map((r) => [r.name, r.totalRuntime, r.measured, r.total])).toEqual([
+        ['vortex', 100, 1, 1],
+        ['lance', 200, 1, 1],
+        ['arrow-ipc', 300, 1, 1],
+      ]);
+      expect(s3[panel].map((r) => [r.name, r.totalRuntime, r.measured, r.total])).toEqual([
+        ['lance', 30_000, 1, 1],
+        ['vortex', 60_000, 1, 1],
+      ]);
+    },
+  );
+
   it('sums random-access charts by dataset before ranking', async () => {
     // The regression: the old summary published one chart's raw times under the
     // group-wide title. `lance` wins `feature-vectors/correlated` outright and
@@ -213,7 +245,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -242,7 +274,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -266,7 +298,7 @@ describe('timing summaries (shared ranking model)', () => {
 
   it('reads each random-access format at its own newest run', async () => {
     query.mockResolvedValue({ rows: [] });
-    await collectGroupSummary({ k: 'RandomAccessGroup' });
+    await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
     // Per-series freshness, not one global latest commit: a format that skipped
     // the newest commit stays on the card at its own last run.
@@ -289,7 +321,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -314,7 +346,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -336,7 +368,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -360,7 +392,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -430,7 +462,7 @@ describe('timing summaries (shared ranking model)', () => {
       },
       { k: 'CompressionTimeGroup' },
       { k: 'CompressionSizeGroup' },
-      { k: 'RandomAccessGroup' },
+      { k: 'RandomAccessGroup', storage: 'nvme' },
       { k: 'VectorSearchGroup', dataset: 'd', layout: 'l' },
     ];
     expect(keys.map((key) => key.k).sort()).toEqual([...GROUP_KINDS].sort());
