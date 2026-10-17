@@ -91,13 +91,20 @@ scripts/migrate-schema.py  ──IAM token, verify-full TLS──▶  RDS as `mi
 
 ```
 push to develop  ──▶  production deploy
-workflow_dispatch ──▶  preview or production (input)
+workflow_dispatch ──▶  preview or production (develop only)
+same-repo PR      ──▶  preview (event merge commit)
    │
    ▼
-runner: pnpm install + `vercel build [--prod]`   (builds web/ ON THE RUNNER)
+shared checks on exact SHA: format + lint + build + test
    │
    ▼
-`vercel deploy --prebuilt [--prod]`              (uploads the prebuilt output)
+runner: `vercel build [--prod]` on the same SHA
+   │
+   ▼
+`vercel deploy --prebuilt [--prod]`
+   │
+   ▼
+verify build SHA + read paths + CDN HIT (bounded retries)
 ```
 
 - The Vercel project is **independently owned** by this repo: keyed by
@@ -109,9 +116,31 @@ runner: pnpm install + `vercel build [--prod]`   (builds web/ ON THE RUNNER)
   prebuilt output is then uploaded, eliminating a build race.
 - `develop` **is** production — there is no staging gate. The per-PR CI
   (including a testcontainer migration test) is the gate; a merge to `develop`
-  ships straight to the v4 production domain.
+  ships to the v4 production domain after the deploy workflow checks the same commit.
+- Push and manual production runs share one concurrency group without cancelling an active run.
+  This serializes promotion and verification across both triggers. Previews can cancel stale runs.
+- Production verification uses `BENCH_SITE_BASE_URL`. A protected preview reports verification
+  as blocked. A production authentication error or failed probe fails the workflow.
 - A `web-keep-warm` scheduled workflow pings the production deployment so the RDS
   connection pool and Data Cache stay warm between visits.
+
+### Required merge check
+
+After the first standalone Web CI run completes, configure the branch protection rule or ruleset
+for `develop` to require `format, lint, build, test`, with **GitHub Actions** as its source
+(app ID `15368`). Enable **Require branches to be up to date before merging**. These are operator
+settings. The workflows do not change repository protection.
+
+From a checkout of that tested commit, verify the context and integration before saving the rule:
+
+```bash
+checked_sha="$(git rev-parse HEAD)"
+gh api "repos/vortex-data/benchmarks-website/commits/${checked_sha}/check-runs" \
+  --jq '.check_runs[] | select(.name == "format, lint, build, test") | {name, conclusion, app_id: .app.id}'
+```
+
+The completed check must report `success` and app ID `15368`. The shared composite preserves
+this standalone check name when its internal steps change.
 
 ## Legacy v3 host deploy (`ops/`) — decommissioned 2026-07-08
 

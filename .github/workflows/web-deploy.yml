@@ -22,10 +22,13 @@ on:
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
     paths:
       - 'web/**'
+      - 'migrations/**'
+      - 'scripts/**'
       - '.github/workflows/web-deploy.yml'
+      - '.github/workflows/web-ci.yml'
+      - '.github/actions/web-checks/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -35,19 +38,13 @@ on:
         default: preview
 
 concurrency:
-  # Include the event name so a manual workflow_dispatch (e.g. a preview deploy) on
-  # `develop` does NOT land in the same group as — and thus cancel — an in-flight
-  # push-triggered production deploy on the same ref.
-  group: web-deploy-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual and push production runs share one promotion/verification queue.
+  # Let the active production run finish; superseded previews can be cancelled.
+  group: ${{ (github.event_name == 'push' || inputs.environment == 'production') && 'web-deploy-production' || format('web-deploy-preview-{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' && inputs.environment != 'production' }}
 
 permissions:
   contents: read
-  pull-requests: write
-  # Create the GitHub Deployment + statuses that render the native "View
-  # deployment" button and the in-progress spinner on the PR (Vercel's git
-  # integration is off here, so the workflow posts these itself).
-  deployments: write
 
 env:
   VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -57,7 +54,27 @@ env:
   PNPM_VERSION: "11.5.2"
 
 jobs:
+  checks:
+    name: Check deployment commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository) &&
+      (github.event_name != 'workflow_dispatch' || inputs.environment != 'production' ||
+       github.ref == 'refs/heads/develop')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/web-checks
+
   deploy:
+    needs: checks
+    permissions:
+      contents: read
+      pull-requests: write
+      deployments: write
     name: Build & deploy to Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -69,8 +86,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
-      # Open a GitHub Deployment against the PR head commit BEFORE the build, so
+      # Open a GitHub Deployment against the tested merge commit before the build, so
       # the PR shows an in-progress (spinner) status immediately and the later
       # success/failure step flips it to the "View deployment" button. PR-only;
       # `transient_environment` lets GitHub retire superseded previews. A failure
@@ -81,7 +100,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           id="$(gh api "repos/${GITHUB_REPOSITORY}/deployments" --method POST --jq '.id' --input - <<EOF || true
@@ -142,10 +161,19 @@ jobs:
             echo "env=production" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Require a public production verification URL
+        if: steps.target.outputs.env == 'production'
+        env:
+          PROD_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+        run: |
+          [[ "$PROD_URL" == https://* ]] || { echo "::error::Set BENCH_SITE_BASE_URL to the public HTTPS production URL."; exit 1; }
+
       - name: Pull Vercel project settings
         run: vercel pull --yes --environment="${{ steps.target.outputs.env }}" --token="${{ secrets.VERCEL_TOKEN }}"
 
       - name: Build
+        env:
+          BENCH_BUILD_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           if [ "${{ steps.target.outputs.env }}" = "production" ]; then
@@ -165,6 +193,21 @@ jobs:
           fi
           echo "url=${url}" >> "$GITHUB_OUTPUT"
           printf 'Deployed: %s\n' "$url"
+
+      - name: Verify deployed build and read paths
+        id: verify
+        timeout-minutes: 4
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          PROD_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+          TARGET_ENV: ${{ steps.target.outputs.env }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if [ "$TARGET_ENV" = production ]; then
+            node scripts/verify-web-deploy.mjs "$PROD_URL" "$EXPECTED_SHA" production
+          else
+            node scripts/verify-web-deploy.mjs "$DEPLOY_URL" "$EXPECTED_SHA" preview
+          fi
 
       # On a pull_request, post the preview URL back to the PR as a single sticky
       # comment (edited in place on each push) so the preview is one click from the PR.
@@ -197,7 +240,7 @@ jobs:
             "state": "success",
             "environment_url": "${DEPLOY_URL}",
             "log_url": "${RUN_URL}",
-            "description": "Preview ready"
+            "description": "${{ steps.verify.outputs.result == 'protected' && 'Deployed; verification blocked by protection' || 'Preview verified' }}"
           }
           EOF
 
