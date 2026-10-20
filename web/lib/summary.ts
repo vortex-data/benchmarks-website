@@ -37,6 +37,7 @@
  */
 
 import { getPool } from './db';
+import { randomAccessStorage, type RandomAccessStorage } from './random-access';
 import { compareCodeUnits } from './families';
 import type { GroupKey } from './slug';
 
@@ -180,7 +181,7 @@ export function collectGroupSummary(key: GroupKey): Promise<Summary | null> {
     case 'CompressionSizeGroup':
       return collectCompressionSizeSummary();
     case 'RandomAccessGroup':
-      return collectRandomAccessSummary();
+      return collectRandomAccessSummary(key.storage);
     case 'VectorSearchGroup':
       return collectVectorSearchSummary(key.dataset, key.layout);
   }
@@ -392,7 +393,7 @@ function groupRandomAccessSamples(
 }
 
 /**
- * The random-access rollup, over one summed bucket per dataset and open mode.
+ * The random-access rollup for one storage backend, over dataset and open-mode buckets.
  *
  * Two things this deliberately does NOT do, both of which the previous
  * implementation did:
@@ -418,7 +419,7 @@ function groupRandomAccessSamples(
  * statement exceed the server-side statement timeout in production. The
  * table is small, so the per-series `DISTINCT ON` descent is cheap.
  */
-async function collectRandomAccessSummary(): Promise<Summary | null> {
+async function collectRandomAccessSummary(storage: RandomAccessStorage): Promise<Summary | null> {
   const text = `
     SELECT DISTINCT ON (r.dataset, r.format, r.open_mode)
            r.dataset AS bucket,
@@ -441,7 +442,10 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
     }>(text)
   ).rows;
   const rankingsFor = (openMode: 'cached' | 'reopen') => {
-    const modeRows = rows.filter((row) => (row.open_mode ?? 'cached') === openMode);
+    const modeRows = rows.filter(
+      (row) =>
+        randomAccessStorage(row.bucket) === storage && (row.open_mode ?? 'cached') === openMode,
+    );
     const grouped = groupRandomAccessSamples(modeRows);
     const knownSeries = [...new Set(modeRows.map((row) => row.series))];
     return rankSeries(grouped, compareCodeUnits, 0, 2, knownSeries).map((ranking) => ({
