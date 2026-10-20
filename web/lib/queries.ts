@@ -31,6 +31,12 @@
  */
 
 import { getPool } from './db';
+import {
+  RANDOM_ACCESS_STORAGES,
+  randomAccessChartName,
+  randomAccessGroupName,
+  randomAccessStorage,
+} from './random-access';
 import { groupDescription } from './descriptions';
 import type { FilterUniverse } from './chart-format';
 import { compareCodeUnits, FAMILIES, type GroupKind } from './families';
@@ -685,7 +691,8 @@ export interface GroupChartsResponse {
 const GROUP_ORDER: readonly string[] = [
   'Compression',
   'Compression Size',
-  'Random Access',
+  'Random Access (NVMe)',
+  'Random Access (S3)',
   'Clickbench',
   'TPC-H (NVMe) (SF=1)',
   'TPC-H (S3) (SF=1)',
@@ -1005,22 +1012,34 @@ async function collectCompressionSizeGroup(): Promise<Group[]> {
   ];
 }
 
-/** The single `Random Access` group, or `[]` if the fact table is empty. */
-async function collectRandomAccessGroup(): Promise<Group[]> {
+/**
+ * One `Random Access` group per storage backend that has rows, NVMe first.
+ * S3 runs are the datasets the producer suffixes with `-s3`.
+ */
+async function collectRandomAccessGroups(): Promise<Group[]> {
   const text = `
     SELECT DISTINCT dataset
       FROM random_access_times
      ORDER BY dataset
   `;
   const rows = (await getPool().query<{ dataset: string }>(text)).rows;
-  if (rows.length === 0) {
-    return [];
+  const groups: Group[] = [];
+  for (const storage of RANDOM_ACCESS_STORAGES) {
+    const charts: ChartLink[] = rows
+      .filter((row) => randomAccessStorage(row.dataset) === storage)
+      .map((row) => ({
+        name: randomAccessChartName(row.dataset),
+        slug: chartKeyToSlug({ k: 'RandomAccess', dataset: row.dataset }),
+      }));
+    if (charts.length > 0) {
+      groups.push({
+        name: randomAccessGroupName(storage),
+        slug: groupKeyToSlug({ k: 'RandomAccessGroup', storage }),
+        charts,
+      });
+    }
   }
-  const charts: ChartLink[] = rows.map((row) => ({
-    name: row.dataset,
-    slug: chartKeyToSlug({ k: 'RandomAccess', dataset: row.dataset }),
-  }));
-  return [{ name: 'Random Access', slug: groupKeyToSlug({ k: 'RandomAccessGroup' }), charts }];
+  return groups;
 }
 
 type VectorSearchGroupRow = { dataset: string; layout: string; threshold: number };
@@ -1080,7 +1099,7 @@ function discoverGroups(groupKind: GroupKind): Promise<Group[]> {
     case 'CompressionSizeGroup':
       return collectCompressionSizeGroup();
     case 'RandomAccessGroup':
-      return collectRandomAccessGroup();
+      return collectRandomAccessGroups();
     case 'VectorSearchGroup':
       return collectVectorSearchGroups();
   }

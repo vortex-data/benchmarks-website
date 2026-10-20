@@ -44,7 +44,7 @@ export type GroupKey =
     }
   | { k: 'CompressionTimeGroup' }
   | { k: 'CompressionSizeGroup' }
-  | { k: 'RandomAccessGroup' }
+  | { k: 'RandomAccessGroup'; storage: string }
   | { k: 'VectorSearchGroup'; dataset: string; layout: string };
 
 const CHART_KINDS: readonly ChartKind[] = [
@@ -234,9 +234,11 @@ export function groupKeyToSlug(key: GroupKey): string {
     case 'VectorSearchGroup':
       ordered = { k: key.k, dataset: key.dataset, layout: key.layout };
       break;
+    case 'RandomAccessGroup':
+      ordered = { k: key.k, storage: key.storage };
+      break;
     case 'CompressionTimeGroup':
     case 'CompressionSizeGroup':
-    case 'RandomAccessGroup':
       ordered = { k: key.k };
       break;
   }
@@ -265,9 +267,11 @@ export function groupKeyFromSlug(slug: string): GroupKey {
       };
     case 'VectorSearchGroup':
       return { k: kind, dataset: reqString(obj, 'dataset'), layout: reqString(obj, 'layout') };
+    case 'RandomAccessGroup':
+      // Slugs minted before the storage split carry no `storage`; they named the NVMe-only group.
+      return { k: kind, storage: optString(obj, 'storage') ?? 'nvme' };
     case 'CompressionTimeGroup':
     case 'CompressionSizeGroup':
-    case 'RandomAccessGroup':
       return { k: kind };
   }
 }

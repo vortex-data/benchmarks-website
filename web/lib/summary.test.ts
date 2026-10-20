@@ -213,7 +213,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -242,7 +242,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -264,9 +264,33 @@ describe('timing summaries (shared ranking model)', () => {
     );
   });
 
+  it('ranks only the datasets measured on the group storage', async () => {
+    const rows = [
+      { bucket: 'taxi/uniform', series: 'lance', value: 100_000 },
+      { bucket: 'taxi/uniform', series: 'vortex', value: 200_000 },
+      { bucket: 'taxi-s3/uniform', series: 'lance', value: 9_000_000 },
+      { bucket: 'taxi-s3/uniform', series: 'vortex', value: 3_000_000 },
+    ];
+    query.mockResolvedValue({ rows });
+
+    const nvme = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
+    const s3 = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 's3' });
+    if (nvme?.type !== 'randomAccess' || s3?.type !== 'randomAccess') {
+      throw new Error('expected randomAccess summaries');
+    }
+    expect(nvme.hotRankings.map((r) => [r.name, r.totalRuntime])).toEqual([
+      ['lance', 100_000],
+      ['vortex', 200_000],
+    ]);
+    expect(s3.hotRankings.map((r) => [r.name, r.totalRuntime])).toEqual([
+      ['vortex', 3_000_000],
+      ['lance', 9_000_000],
+    ]);
+  });
+
   it('reads each random-access format at its own newest run', async () => {
     query.mockResolvedValue({ rows: [] });
-    await collectGroupSummary({ k: 'RandomAccessGroup' });
+    await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     const [text] = query.mock.calls[0] as [string, unknown[] | undefined];
     // Per-series freshness, not one global latest commit: a format that skipped
     // the newest commit stays on the card at its own last run.
@@ -289,7 +313,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -314,7 +338,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -336,7 +360,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -360,7 +384,7 @@ describe('timing summaries (shared ranking model)', () => {
       ],
     });
 
-    const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+    const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
     if (summary === null || summary.type !== 'randomAccess') {
       throw new Error('expected a randomAccess summary');
     }
@@ -430,7 +454,7 @@ describe('timing summaries (shared ranking model)', () => {
       },
       { k: 'CompressionTimeGroup' },
       { k: 'CompressionSizeGroup' },
-      { k: 'RandomAccessGroup' },
+      { k: 'RandomAccessGroup', storage: 'nvme' },
       { k: 'VectorSearchGroup', dataset: 'd', layout: 'l' },
     ];
     expect(keys.map((key) => key.k).sort()).toEqual([...GROUP_KINDS].sort());

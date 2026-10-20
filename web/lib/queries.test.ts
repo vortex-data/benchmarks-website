@@ -330,24 +330,32 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
 // exercised end-to-end only by the Docker-gated collectGroups test; this no-DB
 // test pins the ordering directly so it stays verifiable without testcontainers.
 describe('compareGroupSortKey canonical group ordering (no DB)', () => {
-  it('orders Random Access directly before Clickbench', () => {
-    const sorted = ['PolarSignals Profiling', 'Random Access', 'Clickbench', 'Compression'].sort(
+  it('orders the NVMe then S3 Random Access groups directly before Clickbench', () => {
+    const sorted = [
+      'PolarSignals Profiling',
+      'Random Access (S3)',
+      'Random Access (NVMe)',
+      'Clickbench',
+      'Compression',
+    ].sort(compareGroupSortKey);
+    expect(sorted).toEqual([
+      'Compression',
+      'Random Access (NVMe)',
+      'Random Access (S3)',
+      'Clickbench',
+      'PolarSignals Profiling',
+    ]);
+  });
+
+  it('sorts listed groups before unknown groups, unknowns alphabetically last', () => {
+    const sorted = ['cohere-large-10m / partitioned', 'Random Access (NVMe)', 'Compression'].sort(
       compareGroupSortKey,
     );
     expect(sorted).toEqual([
       'Compression',
-      'Random Access',
-      'Clickbench',
-      'PolarSignals Profiling',
+      'Random Access (NVMe)',
+      'cohere-large-10m / partitioned',
     ]);
-    expect(sorted.indexOf('Random Access') + 1).toBe(sorted.indexOf('Clickbench'));
-  });
-
-  it('sorts listed groups before unknown groups, unknowns alphabetically last', () => {
-    const sorted = ['cohere-large-10m / partitioned', 'Random Access', 'Compression'].sort(
-      compareGroupSortKey,
-    );
-    expect(sorted).toEqual(['Compression', 'Random Access', 'cohere-large-10m / partitioned']);
   });
 
   it('places the appian group directly after both fineweb groups', () => {

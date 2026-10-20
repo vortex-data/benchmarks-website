@@ -64,11 +64,11 @@ describe.skipIf(!dockerAvailable())(
 
     it('orders groups by the canonical GROUP_ORDER, with unknown groups last', async () => {
       const groups = await collectGroups();
-      // `Random Access` is directly before Clickbench in GROUP_ORDER.
+      // `Random Access (NVMe)` is directly before Clickbench in GROUP_ORDER.
       expect(groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'Random Access',
+        'Random Access (NVMe)',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
@@ -77,7 +77,7 @@ describe.skipIf(!dockerAvailable())(
     it('computes the random-access summary (geomean ratio to fastest)', async () => {
       const groups = await collectGroups();
       const summary = expectDefined(
-        groups.find((g) => g.name === 'Random Access')?.summary,
+        groups.find((g) => g.name === 'Random Access (NVMe)')?.summary,
         'random access summary',
       );
       if (summary.type !== 'randomAccess') {
@@ -210,7 +210,7 @@ describe.skipIf(!dockerAvailable())(
 
     it('attaches editorial descriptions and omits them where v2 has none', async () => {
       const groups = await collectGroups();
-      expect(groups.find((g) => g.name === 'Random Access')?.description).toBe(
+      expect(groups.find((g) => g.name === 'Random Access (NVMe)')?.description).toBe(
         'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
       );
       expect(groups.find((g) => g.name === 'TPC-H (NVMe) (SF=1)')?.description).toBe(
@@ -234,7 +234,7 @@ describe.skipIf(!dockerAvailable())(
       expect(body.groups.map((g) => g.name)).toEqual([
         'Compression',
         'Compression Size',
-        'Random Access',
+        'Random Access (NVMe)',
         'TPC-H (NVMe) (SF=1)',
         'cohere-large-10m / partitioned',
       ]);
@@ -325,7 +325,7 @@ describe.skipIf(!dockerAvailable())(
       const pool = getPool();
       await pool.query("DELETE FROM random_access_times WHERE open_mode = 'reopen'");
 
-      const summary = await collectGroupSummary({ k: 'RandomAccessGroup' });
+      const summary = await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' });
       if (summary === null || summary.type !== 'randomAccess') {
         throw new Error('expected a randomAccess summary');
       }
@@ -337,7 +337,10 @@ describe.skipIf(!dockerAvailable())(
       expect(summary.coldRankings).toEqual([]);
 
       const group = expectDefined(
-        await collectGroupCharts({ k: 'RandomAccessGroup' }, parseCommitWindow(null)),
+        await collectGroupCharts(
+          { k: 'RandomAccessGroup', storage: 'nvme' },
+          parseCommitWindow(null),
+        ),
         'cached-only random access group',
       );
       expect(Object.keys(group.charts[0].series).sort()).toEqual([
@@ -484,7 +487,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 1_000_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {
@@ -512,7 +515,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(newer, 'taxi', 'vortex-file-compressed', 1_000_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {
@@ -536,7 +539,7 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await insertRandomAccess(sha, 'taxi', 'vortex-file-compressed', 50_000);
 
     const summary = expectDefined(
-      await collectGroupSummary({ k: 'RandomAccessGroup' }),
+      await collectGroupSummary({ k: 'RandomAccessGroup', storage: 'nvme' }),
       'random-access summary',
     );
     if (summary.type !== 'randomAccess') {

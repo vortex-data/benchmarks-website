@@ -31,7 +31,8 @@ const GROUP_KEYS: GroupKey[] = [
   { k: 'QueryGroup', dataset: 'tpch', dataset_variant: null, scale_factor: '1', storage: 'nvme' },
   { k: 'CompressionTimeGroup' },
   { k: 'CompressionSizeGroup' },
-  { k: 'RandomAccessGroup' },
+  { k: 'RandomAccessGroup', storage: 'nvme' },
+  { k: 'RandomAccessGroup', storage: 's3' },
   { k: 'VectorSearchGroup', dataset: 'cohere', layout: 'partitioned' },
 ];
 
@@ -188,6 +189,13 @@ describe('slug decode validates full payload shape', () => {
       k: 'CompressionTime',
       dataset: 'taxi',
       dataset_variant: null,
+    });
+  });
+
+  it('reads a pre-split RandomAccessGroup slug as the NVMe group', () => {
+    expect(groupKeyFromSlug(forge({ k: 'RandomAccessGroup' }))).toEqual({
+      k: 'RandomAccessGroup',
+      storage: 'nvme',
     });
   });
 

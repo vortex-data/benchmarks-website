@@ -38,6 +38,7 @@
 
 import { getPool } from './db';
 import { compareCodeUnits } from './families';
+import { randomAccessStorage } from './random-access';
 import type { GroupKey } from './slug';
 
 /**
@@ -180,7 +181,7 @@ export function collectGroupSummary(key: GroupKey): Promise<Summary | null> {
     case 'CompressionSizeGroup':
       return collectCompressionSizeSummary();
     case 'RandomAccessGroup':
-      return collectRandomAccessSummary();
+      return collectRandomAccessSummary(key.storage);
     case 'VectorSearchGroup':
       return collectVectorSearchSummary(key.dataset, key.layout);
   }
@@ -393,6 +394,8 @@ function groupRandomAccessSamples(
 
 /**
  * The random-access rollup, over one summed bucket per dataset and open mode.
+ * Only the datasets measured on `storage` count, so the NVMe and S3 groups
+ * each rank their own runs.
  *
  * Two things this deliberately does NOT do, both of which the previous
  * implementation did:
@@ -418,7 +421,7 @@ function groupRandomAccessSamples(
  * statement exceed the server-side statement timeout in production. The
  * table is small, so the per-series `DISTINCT ON` descent is cheap.
  */
-async function collectRandomAccessSummary(): Promise<Summary | null> {
+async function collectRandomAccessSummary(storage: string): Promise<Summary | null> {
   const text = `
     SELECT DISTINCT ON (r.dataset, r.format, r.open_mode)
            r.dataset AS bucket,
@@ -439,7 +442,7 @@ async function collectRandomAccessSummary(): Promise<Summary | null> {
       open_mode?: 'cached' | 'reopen';
       value: number;
     }>(text)
-  ).rows;
+  ).rows.filter((row) => randomAccessStorage(row.bucket) === storage);
   const rankingsFor = (openMode: 'cached' | 'reopen') => {
     const modeRows = rows.filter((row) => (row.open_mode ?? 'cached') === openMode);
     const grouped = groupRandomAccessSamples(modeRows);

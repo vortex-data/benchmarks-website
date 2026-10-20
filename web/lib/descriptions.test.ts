@@ -8,8 +8,11 @@ import { groupDescription } from './descriptions';
 // `descriptions.rs` unit tests verbatim (the v2 contract).
 describe('groupDescription', () => {
   it('returns the v2 static descriptions verbatim', () => {
-    expect(groupDescription('Random Access')).toBe(
+    expect(groupDescription('Random Access (NVMe)')).toBe(
       'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
+    );
+    expect(groupDescription('Random Access (S3)')).toBe(
+      'Tests performance of selecting arbitrary row indices from a file on S3 storage',
     );
     expect(groupDescription('Compression')).toBe(
       'Measures write and scan throughput for Vortex, Parquet, and Lance files',

@@ -39,8 +39,10 @@ export function groupDescription(name: string): string | null {
  */
 function staticDescription(name: string): string | null {
   switch (name) {
-    case 'Random Access':
+    case 'Random Access (NVMe)':
       return 'Tests performance of selecting arbitrary row indices from a file on NVMe storage';
+    case 'Random Access (S3)':
+      return 'Tests performance of selecting arbitrary row indices from a file on S3 storage';
     case 'Compression':
       return 'Measures write and scan throughput for Vortex, Parquet, and Lance files';
     case 'Compression Size':
